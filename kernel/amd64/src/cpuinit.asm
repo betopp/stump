@@ -25,6 +25,10 @@ extern _MULTIBOOT_BSS_END_ADDR
 %define CPUINIT_TSS_SIZE 128
 %define CPUINIT_TSS_SIZE_LOG2 7
 
+;Size of stack per CPU
+%define CPUINIT_STACK_SIZE 4096
+%define CPUINIT_STACK_SIZE_LOG2 12
+
 ;Entered from bootloader in 32-bit protected mode without paging.
 global cpuinit_entry
 cpuinit_entry:
@@ -83,6 +87,27 @@ cpuinit_entry:
 		add EAX, 4096 ;Next page
 		loop .pt_loop
 	.pt_done:
+	
+	;Make the second-to-top PML4e reference a second PDPT, where we'll map physical space directly
+	mov EDI, PHYS(cpuinit_pml4)
+	mov EAX, PHYS(cpuinit_pdpt_pspace)
+	or EAX, 0x3
+	mov [EDI + (510*8)], EAX ;Second-to-top entry, second-highest 512GByte
+	
+	;Fill that PDPT with 1GByte pages, direct-mapping physical space
+	mov EAX, 0x83 ;Present, writable, last-level, 0 address
+	mov EDX, 0
+	mov EDI, PHYS(cpuinit_pdpt_pspace)
+	mov ECX, 512
+	.pspace_loop:
+		mov [EDI + 0], EAX
+		mov [EDI + 4], EDX
+		add EDI, 8 ;Next PDPTe
+		add EAX, 4096 * 512 * 512 ;Next 1GByte hugepage
+		adc EDX, 0 ;Need to use 64-bit addresses
+		loop .pspace_loop
+	.pspace_done:
+	
 	
 	;Before we actually go into paged mode, and need to virtually map stuff for this to work, get the other cores running.
 
@@ -252,11 +277,53 @@ cpuinit_entry_all:
 	ltr AX
 	
 	;Pick our proper per-CPU stack.
+	mov RAX, RBX ;Get core number
+	shl RAX, CPUINIT_STACK_SIZE_LOG2 ;Make offset in array of stacks
+	add RAX, cpuinit_stack_storage ;Position in array
+	add RAX, CPUINIT_STACK_SIZE ;Start at top of stack
+	mov RSP, RAX
 	
+	;If we're not core 0, run through kernel setup.
+	cmp RBX, 0
+	jne .notcore0
 	
+		;Set up framebuffer output
+		extern m_fb_init
+		call m_fb_init
+	
+		;Set up memory allocator with info from multiboot
+		extern m_frame_init
+		call m_frame_init
+		
+		;Do uni-processor kernel setup
+		extern entry_boot
+		call entry_boot
+		
+		;Indicate that other cores can proceed
+		mov RAX, 1
+		mov [cpuinit_kready], RAX
+	
+	.notcore0:
+	
+	;Wait for core 0 to complete its kernel setup, then go in to run the kernel
+	.waitcore0:
+	mov RAX, [cpuinit_kready]
+	cmp RAX, 0
+	pause
+	nop
+	je .waitcore0
+	
+	extern entry_smp
+	call entry_smp
+	
+	;Should never return here. Triple-fault.
+	lidt [.crash_idtr]
+	int 0xFF
 	.spin:
 	jmp .spin
-	
+	.crash_idtr:
+		dw 1 ;Limit
+		dq 0 ;Base
 
 ;Trampoline copied to conventional memory for starting-up non-bootstrap cores.
 ;They begin executing this at the address CPUINIT_SMPSTUB_ADDR.
@@ -369,6 +436,11 @@ alignb 4096
 cpuinit_ktss_storage:
 	resb CPUINIT_TSS_SIZE * CPUINIT_CPU_MAX
 	
+;Early stacks for every CPU
+alignb 4096
+cpuinit_stack_storage:
+	resb CPUINIT_STACK_SIZE * CPUINIT_CPU_MAX
+	
 ;Interrupt descriptor table - has to be built at runtime because of the insane address swizzling.
 ;Ideally the linker would support building this at build-time, but that doesn't work.
 alignb 4096
@@ -384,7 +456,14 @@ cpuinit_pml4:
 ;Page directory pointer table for kernel - top 512GBytes of everyone's address space.
 ;This gets referenced from all user PML4s too.
 alignb 4096
+global cpuinit_pdpt ;Referenced by kspc code (m_kspc_set, m_kspc_get)
 cpuinit_pdpt:
+	resb 4096
+
+;Page directory pointer table that represents physical space - next-highest 512GBytes of space.
+;This gets referenced from all user PML4s too, too.
+alignb 4096
+cpuinit_pdpt_pspace:
 	resb 4096
 
 ;Initial page directory for kernel. Second-to-top 1GByte of address space.
@@ -396,8 +475,15 @@ cpuinit_pd:
 alignb 4096
 cpuinit_pt:
 	resb 4096*CPUINIT_STARTPT
+
 	
 ;Number of cores that have started up. Used with an atomic to figure out "which core am I".
 alignb 8
 cpuinit_ncores:
 	resb 8
+
+;Whether core-0 has finished early init
+alignb 8
+cpuinit_kready:
+	resb 8
+
