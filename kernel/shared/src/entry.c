@@ -6,6 +6,8 @@
 #include "ramfs.h"
 #include "fb.h"
 #include "systar.h"
+#include "process.h"
+#include "thread.h"
 
 //Entered once on bootstrap core. Should set up kernel and return.
 void entry_boot(void)
@@ -18,10 +20,16 @@ void entry_boot(void)
 	//Unpack and free the TAR file containing initial FS contents
 	systar_unpack();
 	
+	//Make initial process to execute init
+	process_init();
 }
 
 //Entered on all cores once entry_one returns. Should schedule threads and never return.
 void entry_smp(void)
 {
-	while(1) { }
+	while(1)
+	{
+		//Run threads forever
+		thread_sched();
+	}
 }

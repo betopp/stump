@@ -381,13 +381,28 @@ cpuinit_smpstub:
 	mov EAX, PHYS(cpuinit_entry_all)
 	jmp EAX
 	.end:
+	bits 64
 	
+;Returns the address of our Task-State Segment in RAX.
+global cpuinit_gettss
+cpuinit_gettss:
+	mov RAX, 0 ;LTR doesn't clear high bits, I think
+	ltr AX ;Get our task register - index of task-state-segment descriptor
+	sub RAX, cpuinit_gdt.ktss_array - cpuinit_gdt ;Turn into offset from first TSS descriptor selector
+	shr RAX, 4 ;Each TSS descriptor is 16 bytes
+	shl RAX, CPUINIT_TSS_SIZE_LOG2 ;Turn into offset in TSS storage
+	add RAX, cpuinit_ktss_storage ;Turn into pointer in TSS storage
+	ret
+
 	
 section .data
 bits 64
 
 ;Global descriptor table that we use once CPUs are set up.
 align 8
+global cpuinit_gdt
+global cpuinit_gdt.r3code64
+global cpuinit_gdt.r3data64
 cpuinit_gdt:
 	;Null descriptor (CPU requires this to be in index 0)
 	dq 0
@@ -450,6 +465,7 @@ cpuinit_idt:
 
 ;Page-map level 4 for kernel (only one of these, for whole 48-bit virtual space)
 alignb 4096
+global cpuinit_pml4 ;Referenced by uspc code (makes copy of kernel PML4 for each user PML4)
 cpuinit_pml4:
 	resb 4096
 

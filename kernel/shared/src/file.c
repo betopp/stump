@@ -194,6 +194,21 @@ ssize_t file_write(file_t *file, const void *buf, ssize_t nbytes)
 	return retval;
 }
 
+int file_trunc(file_t *file, off_t size)
+{
+	if(S_ISDIR(file->mode))
+		return -EISDIR;
+	
+	if(S_ISCHR(file->mode))
+		return -ENOTTY;
+	
+	ramfs_lock();
+	int retval = ramfs_trunc(file->ino, size);
+	ramfs_unlock();
+	
+	return retval;
+}
+
 void file_unlock(file_t *file)
 {
 	if(file->refs == 0)

@@ -34,6 +34,9 @@ ssize_t file_read(file_t *file, void *buf, ssize_t nbytes);
 //Writes data into the open file.
 ssize_t file_write(file_t *file, const void *buf, ssize_t nbytes);
 
+//Changes the size of the given open file.
+int file_trunc(file_t *file, off_t size);
+
 //Releases the lock on a file. Frees it if there are no references when unlocked.
 void file_unlock(file_t *file);
 
