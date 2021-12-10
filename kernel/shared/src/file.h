@@ -19,15 +19,19 @@ typedef struct file_s
 	dev_t special; //Special-number of file at time of open
 } file_t;
 
+
+//Makes a new file. Outputs a pointer to the new open file, with the lock held, and one reference.
+int file_make(file_t *dir, const char *name, mode_t mode, dev_t special, file_t **file_out);
+
 //Finds an existing file. Outputs a pointer to the new open file, with the lock held, and one reference.
 //Pass NULL for "dir" to search the root directory. Pass empty-string as "name" to get a reference to the same file.
 //Returns 0 on success or a negative error number.
 int file_find(file_t *dir, const char *name, file_t **file_out);
 
-//Makes a new file. Outputs a pointer to the new open file, with the lock held, and one reference.
-int file_make(file_t *dir, const char *name, mode_t mode, dev_t special, file_t **file_out);
+//Reads data from the open file.
+ssize_t file_read(file_t *file, void *buf, ssize_t nbytes);
 
-//Writes data into the file.
+//Writes data into the open file.
 ssize_t file_write(file_t *file, const void *buf, ssize_t nbytes);
 
 //Releases the lock on a file. Frees it if there are no references when unlocked.

@@ -5,6 +5,7 @@
 #include "ramfs.h"
 #include "kpage.h"
 #include "kassert.h"
+#include "m_spl.h"
 #include "m_panic.h"
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -57,6 +58,9 @@ static ramfs_block_t *ramfs_blocks;
 //Free-list of FS blocks
 static int ramfs_freehead;
 
+//Spinlock protecting the filesystem
+static m_spl_t ramfs_spl;
+
 //Directory entry as stored in filesystem
 typedef struct ramfs_dirent_s
 {
@@ -84,6 +88,23 @@ static void ramfs_free(int blknum)
 	KASSERT(blknum != 0);
 	ramfs_blocks[blknum].nextfree = ramfs_freehead;
 	ramfs_freehead = blknum;
+}
+
+//Checks if any references remain to the given inode.
+//If not, frees it.
+static void ramfs_checkrefs(ino_t ino)
+{
+	ramfs_ino_t *iptr = &(ramfs_blocks[ino].ino);
+	if(iptr->nfiles > 0)
+		return;
+	if(iptr->nlinks > 0)
+		return;
+	
+	//No links or open files. Free this inode.
+	ramfs_trunc(ino, 0);
+	iptr->mode = -1; //Poison
+	iptr->size = -1; //Poison
+	ramfs_free(ino);
 }
 
 //Returns the block number of the data-block for the given offset in the given inode.
@@ -159,6 +180,19 @@ void ramfs_init(void)
 	ssize_t dotdot_written = ramfs_write(0, sizeof(dot), &dotdot, sizeof(dotdot));
 	if(dotdot_written != sizeof(dotdot))
 		m_panic("ramfs_init failed making root dir");
+	
+	//Give root directory a phony reference-count that can (should) never be removed
+	ramfs_blocks[0].ino.nlinks++;
+}
+
+void ramfs_lock(void)
+{
+	m_spl_acq(&ramfs_spl);
+}
+
+void ramfs_unlock(void)
+{
+	m_spl_rel(&ramfs_spl);
 }
 
 int ramfs_make(ino_t dir, const char *name, mode_t mode, dev_t special, ino_t *ino_out)
@@ -235,8 +269,7 @@ int ramfs_make(ino_t dir, const char *name, mode_t mode, dev_t special, ino_t *i
 		goto failure;
 	}
 	
-	//The new file starts with one link in the filesystem and one open file.
-	newino->nfiles = 1;
+	//The new file starts with one link in the filesystem.
 	newino->nlinks = 1;
 	*ino_out = inoblock;
 	return 0;
@@ -260,7 +293,6 @@ int ramfs_find(ino_t dir, const char *name, ino_t *ino_out)
 	{
 		//Looking up "" - return the given file.
 		*ino_out = dir;
-		ramfs_blocks[dir].ino.nfiles++;
 		return 0;
 	}
 	
@@ -283,7 +315,6 @@ int ramfs_find(ino_t dir, const char *name, ino_t *ino_out)
 		{
 			//Found it - output the inode and give it another file reference.
 			*ino_out = de.ino;
-			ramfs_blocks[de.ino].ino.nfiles++;
 			return 0;
 		}
 		
@@ -450,4 +481,35 @@ int ramfs_trunc(ino_t ino, off_t size)
 	}
 	
 	return 0;
+}
+
+int ramfs_stat(ino_t ino, struct stat *st)
+{
+	KASSERT(ino < RAMFS_BLOCK_MAX);
+	ramfs_ino_t *iptr = &(ramfs_blocks[ino].ino);
+	
+	memset(st, 0, sizeof(*st));
+	st->st_ino = ino;
+	st->st_mode = iptr->mode;
+	st->st_rdev = iptr->special;
+	st->st_size = iptr->size;
+	st->st_nlink = iptr->nlinks;
+	return 0;
+}
+
+void ramfs_inc(ino_t ino)
+{
+	KASSERT(ino < RAMFS_BLOCK_MAX);
+	ramfs_ino_t *iptr = &(ramfs_blocks[ino].ino);
+	iptr->nfiles++;
+	KASSERT(iptr->nfiles > 0);
+}
+
+void ramfs_dec(ino_t ino)
+{
+	KASSERT(ino < RAMFS_BLOCK_MAX);
+	ramfs_ino_t *iptr = &(ramfs_blocks[ino].ino);
+	iptr->nfiles--;
+	KASSERT(iptr->nfiles >= 0);	
+	ramfs_checkrefs(ino);
 }
