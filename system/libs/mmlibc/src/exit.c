@@ -28,10 +28,14 @@ void _atexit_run(void)
 
 void exit(int status)
 {
+	//Call registered atexit() functions
 	_atexit_run();
 	
-	//Todo - flush streams, close output streams, delete temp files
+	//Call destructors
+	extern void _fini();
+	_fini();
 	
+	//Todo - flush streams, close output streams, delete temp files
 	_Exit(status);
 }
 
@@ -40,6 +44,7 @@ void _Exit(int status)
 	_sc_exit(status, 0);
 	
 	//That shouldn't return, but we really want to crash if it does.
+	abort();
 	while(1) { (*(volatile int*)0)++; }
 }
 

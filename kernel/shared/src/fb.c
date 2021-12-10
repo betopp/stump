@@ -35,7 +35,7 @@ void fb_init(void)
 		uint32_t *line = (uint32_t*)(((char*)fb_ptr) + (yy * fb_stride));
 		for(int xx = 0; xx < fb_width; xx++)
 		{
-			line[xx] = 0x2a3469;
+			line[xx] = 0;
 		}
 	}
 	
@@ -48,7 +48,7 @@ void fb_init(void)
 		for(int xx = 0; xx < logo_width; xx++)
 		{
 			if(logo_ptr[xx / 8] & (1 << (xx%8)))
-				line[xx] = 0;
+				line[xx] = 0xFFFFFFFF;
 		}
 		logo_ptr += (logo_width + 7) / 8;
 	}

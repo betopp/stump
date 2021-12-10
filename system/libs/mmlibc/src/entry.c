@@ -6,7 +6,7 @@
 #include <string.h>
 #include <signal.h>
 
-char **_default_environ = (char*[]){ "BNBN=" BUILDVERSION , NULL };
+char **_default_environ = (char*[]){ "STUMP=" BUILDVERSION , NULL };
 
 void _libc_entry(int argc, char **argv, char **envp)
 {
@@ -22,6 +22,10 @@ void _libc_entry(int argc, char **argv, char **envp)
 	{
 		signal(ss, SIG_DFL);
 	}
+	
+	//Call constructors
+	extern void _init();
+	_init();
 	
 	//Call main
 	extern int main();
