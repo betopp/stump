@@ -3,6 +3,7 @@
 //Bryan E. Topp <betopp@betopp.com> 2021
 
 #include "thread.h"
+#include "m_intr.h"
 #include <errno.h>
 #include <stddef.h>
 
@@ -34,7 +35,7 @@ static thread_t *thread_lockfree(void)
 	return NULL;
 }
 
-int thread_new(process_t *process, thread_t **thread_out)
+int thread_new(process_t *process, uintptr_t entry, thread_t **thread_out)
 {
 	thread_t *tptr = thread_lockfree();
 	if(tptr == NULL)
@@ -45,6 +46,9 @@ int thread_new(process_t *process, thread_t **thread_out)
 	
 	tptr->state = THREAD_STATE_READY;
 	tptr->process = process;
+	
+	m_drop_reset(&(tptr->drop), entry);
+	
 	process->nthreads++;
 	
 	//Success
@@ -59,6 +63,10 @@ void thread_unlock(thread_t *thread)
 
 void thread_sched(void)
 {
+	//Disable interrupts while trying to schedule.
+	//If a thread becomes runnable while we search, then, the resulting interrupt will be waiting for us.
+	m_intr_ei(false);
+	
 	//Look for threads to run
 	thread_t *tptr = NULL;
 	for(int tt = 0; tt < THREAD_MAX; tt++)
@@ -74,14 +82,24 @@ void thread_sched(void)
 			m_spl_rel(&(thread_table[tt].spl));
 		}
 	}
-		
+	
+	if(tptr == NULL)
+	{
+		//No threads runnable right now.
+		//Wait for an interprocessor interrupt that might indicate something to do.
+		m_intr_halt();
+		return;
+	}
+	
 	//Got a thread, it's ready, and we've locked it.
 	
 	//Mark the thread as running, and resume its userspace.
 	tptr->state = THREAD_STATE_RUN;
 	thread_unlock(tptr);
 	
-	m_drop(&(tptr->drop)); //Assume nobody's messing with this, if the thread is marked "running"
+	//Assume nobody's messing with this, if the thread is marked "running" - even though we released the lock
+	m_uspc_activate(tptr->process->mem.uspc);
+	m_drop(&(tptr->drop));
 	
 	//Eventually we'll come back here. See why we returned.
 	while(1) { }

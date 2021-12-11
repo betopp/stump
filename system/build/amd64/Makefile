@@ -25,7 +25,6 @@ CFLAGS += -std=c99 -Wall -Werror -Wextra -pedantic
 CFLAGS += -nostdlib -nostdinc
 CFLAGS += -I$(L)/mmlibc/include
 CFLAGS += -I$(L)/libsc/include
-CFLAGS += -I$(L)/libwl/include
 CFLAGS += -g -mno-sse
 CFLAGS += -ffunction-sections
 CFLAGS += -fdata-sections
@@ -39,9 +38,10 @@ CFLAGS += -DBUILDDATE=\"$(BUILDDATE)\"
 CFLAGS += -DBUILDUSER=\"$(BUILDUSER)\"
 
 #Link flags
-LDFLAGS += -m64 -nostdlib -Tcrtx/user.ld
+LDFLAGS += -nostdlib -Tcrtx/user.ld
 LDFLAGS += -static
 LDFLAGS += -Wl,--gc-sections
+LDFLAGS += -z max-page-size=0x1000
 
 #Standard compiler invocations
 PRELINK = $(O)/crt0.o $(O)/crti.o

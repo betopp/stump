@@ -11,6 +11,9 @@
 //Kernel PML4 (top-level paging)
 extern uint64_t cpuinit_pml4[];
 
+//Difference between virtual and physical addresses in kernel as-linked, from linker script
+extern const uint8_t _KERNEL_VOFFS[];
+
 void m_uspc_range(uintptr_t *start_out, uintptr_t *end_out)
 {
 	//Start just above the zero-page
@@ -28,10 +31,11 @@ m_uspc_t m_uspc_new(void)
 	if(pml4 == 0)
 		return 0;
 	
-	//Copy the kernel's PML4 into the user PML4, as a template.
-	//The kernel and physical-space mappings live in a single PDPT each, allocated once.
-	//So the reference from the PML4 to those never changes.
-	for(int ee = 0; ee < 512; ee++)
+	//Zero the new PML4
+	pspace_clrframe(pml4);
+	
+	//Copy the references to the kernel's PDPT and the physical-space PDPT.
+	for(int ee = 510; ee < 512; ee++)
 	{
 		pspace_write(pml4 + (8 * ee), cpuinit_pml4[ee]);
 	}
@@ -102,6 +106,8 @@ bool m_uspc_set(m_uspc_t uspc, uintptr_t vaddr, uintptr_t paddr, int prot)
 		if(newpdpt == 0)
 			return false; //No room for PDPT
 		
+		pspace_clrframe(newpdpt);
+		
 		pml4e = newpdpt | 0x7; //Present, writable, user-accessible
 		pspace_write(pml4_base + (8 * pml4_idx), pml4e);
 	}
@@ -116,6 +122,8 @@ bool m_uspc_set(m_uspc_t uspc, uintptr_t vaddr, uintptr_t paddr, int prot)
 		if(newpd == 0)
 			return false; //No room for PD
 		
+		pspace_clrframe(newpd);
+		
 		pdpte = newpd | 0x7; //Present, writable, user-accessible
 		pspace_write(pdpt_base + (8 * pdpt_idx), pdpte);
 	}
@@ -129,6 +137,8 @@ bool m_uspc_set(m_uspc_t uspc, uintptr_t vaddr, uintptr_t paddr, int prot)
 		uint64_t newpt = m_frame_alloc();
 		if(newpt == 0)
 			return false; //No room for PT
+		
+		pspace_clrframe(newpt);
 		
 		pde = newpt | 0x7; //Present, writable, user-accessible
 		pspace_write(pd_base + (8 * pd_idx), pde);
@@ -227,7 +237,8 @@ uintptr_t m_uspc_get(m_uspc_t uspc, uintptr_t vaddr)
 m_uspc_t m_uspc_current()
 {
 	uintptr_t cr3 = getcr3();
-	if(cr3 == (uintptr_t)cpuinit_pml4)
+	
+	if(cr3 == (uintptr_t)cpuinit_pml4 - (uintptr_t)_KERNEL_VOFFS)
 		return 0; //Indicates "no userspace"
 	
 	return cr3;
@@ -239,7 +250,7 @@ void m_uspc_activate(m_uspc_t uspc)
 		m_panic("m_uspc_activate misalign");
 	
 	if(uspc == 0) //Indicates "no userspace"
-		setcr3((uintptr_t)cpuinit_pml4);
+		setcr3((uintptr_t)cpuinit_pml4 - (uintptr_t)_KERNEL_VOFFS);
 	else
 		setcr3(uspc);
 }

@@ -164,15 +164,17 @@ cpuinit_entry_all:
 
 	;All cores run through this path.
 
-	;Turn on PAE (8-byte pagetable entries)
+	;Turn on PAE (8-byte pagetable entries) and FSGSBASE (rdgsbase/wrgsbase instructions)
 	mov EAX, CR4
 	or EAX, 1<<5 ;PAE
+	or EAX, 1<<16 ;FSGSBASE
 	mov CR4, EAX
 	
-	;Turn on Long Mode Enable (so Paging will trigger Long Mode Active)
+	;Turn on Long Mode Enable (so Paging will trigger Long Mode Active) and NX-bit support
 	mov ECX, 0xC0000080 ;EFER
 	rdmsr
 	or EAX, 1<<8 ;LME
+	or EAX, 1<<11 ;NX
 	wrmsr
 	
 	;Use our newly-built PML4 when we turn on paging
@@ -220,6 +222,36 @@ cpuinit_entry_all:
 	mov ES, AX
 	mov FS, AX
 	mov GS, AX
+	
+	;Turn on SYSCALL/SYSRET and set up entry points
+	mov RCX, 0xC0000080 ;EFER
+	rdmsr
+	or RAX, (1<<0) ;SCE
+	wrmsr
+	
+	mov RCX, 0xC0000084 ;SFMASK
+	rdmsr
+	mov RAX, 0xFFFFFFFF ;Clear all flags on SYSCALL
+	wrmsr
+	
+	mov RCX, 0xC0000083 ;CSTAR - target RIP for compatibility-mode syscalls
+	mov RAX, cpuinit_syscall_32
+	mov RDX, RAX
+	shr RDX, 32
+	wrmsr
+	
+	mov RCX, 0xC0000082 ;LSTAR - target RIP for 64-bit-mode syscalls
+	mov RAX, cpuinit_syscall_64
+	mov RDX, RAX
+	shr RDX, 32
+	wrmsr
+	
+	mov RCX, 0xC0000081 ;STAR
+	mov RDX, (cpuinit_gdt.r3dummy - cpuinit_gdt) | 0x3 ;SYSRET CS and SS (+16 and +8 respectively)
+	shl RDX, 16
+	or RDX, (cpuinit_gdt.r0code64 - cpuinit_gdt) | 0x0 ;SYSCALL CS and SS (+0 and +8 respectively)
+	mov RAX, 0 ;32-bit SYSCALL target (unused)
+	wrmsr
 	
 	;Figure out what core ID we are.
 	;We could pull this from the APIC or whatever but this is easier.
@@ -369,7 +401,7 @@ cpuinit_smpstub:
 	.target32:
 	bits 32
 	
-	;Load data segments
+	;Load flat 32-bit data segments
 	mov AX, 16
 	mov SS, AX
 	mov DS, AX
@@ -387,13 +419,20 @@ cpuinit_smpstub:
 global cpuinit_gettss
 cpuinit_gettss:
 	mov RAX, 0 ;LTR doesn't clear high bits, I think
-	ltr AX ;Get our task register - index of task-state-segment descriptor
+	str AX ;Get our task register - index of task-state-segment descriptor
 	sub RAX, cpuinit_gdt.ktss_array - cpuinit_gdt ;Turn into offset from first TSS descriptor selector
 	shr RAX, 4 ;Each TSS descriptor is 16 bytes
 	shl RAX, CPUINIT_TSS_SIZE_LOG2 ;Turn into offset in TSS storage
 	add RAX, cpuinit_ktss_storage ;Turn into pointer in TSS storage
 	ret
 
+;Entered on system-call from 32-bit compatibility-mode (not used)
+cpuinit_syscall_32:
+	jmp cpuinit_syscall_32
+	
+;Entered on system-call from 64-bit code
+cpuinit_syscall_64:
+	jmp cpuinit_syscall_64
 	
 section .data
 bits 64

@@ -41,7 +41,7 @@ typedef struct thread_s
 
 //Makes a new thread. Outputs a pointer to it, still locked.
 //Returns 0 on success or a negative error number.
-int thread_new(process_t *process, thread_t **thread_out);
+int thread_new(process_t *process, uintptr_t entry, thread_t **thread_out);
 
 //Unlocks the given thread.
 void thread_unlock(thread_t *thread);

@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <stddef.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 
 //All files currently open on the system.
@@ -207,6 +208,45 @@ int file_trunc(file_t *file, off_t size)
 	ramfs_unlock();
 	
 	return retval;
+}
+
+off_t file_seek(file_t *file, off_t offset, int whence)
+{
+	off_t whence_val = 0;
+	switch(whence)
+	{
+		case SEEK_SET:
+		{
+			whence_val = 0;
+			break;
+		}
+		case SEEK_CUR:
+		{
+			whence_val = file->off;
+			break;
+		}
+		case SEEK_END:
+		{
+			struct stat st;
+			ramfs_lock();
+			int stat_err = ramfs_stat(file->ino, &st);
+			ramfs_unlock();
+			
+			if(stat_err < 0)
+				return stat_err;
+			
+			whence_val = st.st_size;
+			break;
+		}
+		default:
+			return -EINVAL;
+	}
+	
+	file->off = whence_val + offset;
+	if(file->off < 0)
+		file->off = 0;
+	
+	return file->off;
 }
 
 void file_unlock(file_t *file)
