@@ -21,7 +21,7 @@ typedef struct mem_seg_s
 typedef struct mem_s
 {
 	//Kernel-side tracking of which segments are allocated
-	#define MEM_SEG_MAX 128
+	#define MEM_SEG_MAX 32
 	mem_seg_t segs[MEM_SEG_MAX];
 	
 	//Machine-specific paging structures

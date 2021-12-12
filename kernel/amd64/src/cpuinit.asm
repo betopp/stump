@@ -432,7 +432,52 @@ cpuinit_syscall_32:
 	
 ;Entered on system-call from 64-bit code
 cpuinit_syscall_64:
-	jmp cpuinit_syscall_64
+	;All flags are cleared on entry (given our SFMASK MSR setting).
+	;So interrupts are already disabled at this point.
+	
+	;Swap back to kernel GS
+	swapgs
+	
+	;The SYSCALL instruction has saved the old RIP and RFLAGS in RCX and R11, respectively.
+	;The user has passed parameters to us in RDI, RSI, RDX, R8, and R9 as usual.
+	;The parameter that they'd normally put in RCX is passed in R10 instead.
+	;They expect RBX, RBP, RSP, and R12-R15 preserved, as usual.
+	;So we can only clobber RAX at this point.
+	
+	;We need to get back to the kernel stack.
+	;Retrieve the one that we saved in this core's task-state segment.
+	mov RAX, 0
+	str AX ;Get this core's TSS descriptor selector
+	sub RAX, (cpuinit_gdt.ktss_array - cpuinit_gdt) ;Make relative to first TSS descriptor
+	shr RAX, 4 ;16 bytes per TSS descriptor - turn into index in the descriptor array
+	shl RAX, CPUINIT_TSS_SIZE_LOG2 ;Make offset in TSS storage array
+	add RAX, cpuinit_ktss_storage ;Make pointer to this CPU's TSS
+	mov RAX, [RAX + 4] ;Load the saved RSP0 from when we last dropped to user-mode.	(Yes, it's a 64-bit value at offset +4.)
+	
+	;Swap over to the kernel stack, preserving the user's then in RAX.
+	xchg RAX, RSP
+	
+	;Save RSP/RIP/RFLAGS from userspace
+	push RAX ;User RSP
+	push RCX ;User RIP
+	push R11 ;User RFLAGS
+	
+	;Restore the fourth parameter in its usual place, per calling convention
+	mov RCX, R10
+	
+	;Call the kernel to handle the system-call.
+	extern entry_syscall
+	call entry_syscall
+	
+	;If the kernel returns from entry_syscall, we can use a fast system-call return path.
+	;Return value is already in RAX as intended.
+
+	;Restore RCX and R11, for sysret to put back into RIP and RLAGS, and user's RSP.
+	pop R11 ;User RFLAGS
+	pop RCX ;User RIP
+	pop RSP ;User RSP
+	swapgs ;Restore user GS-base
+	o64 a64 sysret ;RIP = RCX, RFLAGS = R11
 	
 section .data
 bits 64

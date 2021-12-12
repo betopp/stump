@@ -43,11 +43,15 @@ typedef struct thread_s
 //Returns 0 on success or a negative error number.
 int thread_new(process_t *process, uintptr_t entry, thread_t **thread_out);
 
+//Locks the current thread and returns a pointer to it.
+thread_t *thread_lockcur(void);
+
 //Unlocks the given thread.
 void thread_unlock(thread_t *thread);
 
-//Finds a runnable thread and runs it.
-void thread_sched(void);
+//Finds a runnable thread and runs it, waiting until one is runnable if necessary.
+//Does not return after running the thread.
+void thread_sched(void) __attribute__((noreturn));
 
 
 #endif //THREAD_H

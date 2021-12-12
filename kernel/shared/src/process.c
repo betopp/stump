@@ -7,7 +7,9 @@
 #include "kassert.h"
 #include "elf64.h"
 #include "thread.h"
+#include "m_tls.h"
 #include <errno.h>
+#include <string.h>
 #include <stddef.h>
 
 //All processes on system
@@ -60,7 +62,76 @@ void process_init(void)
 	process_unlock(pptr);
 }
 
+process_t *process_lockcur(void)
+{
+	thread_t *tptr = (thread_t*)(m_tls_get());	
+	process_t *pptr = tptr->process;
+	
+	m_spl_acq(&(pptr->spl));
+	return pptr;
+}
+
 void process_unlock(process_t *process)
 {
 	m_spl_rel(&(process->spl));
+}
+
+file_t *process_lockfd(int fd, bool allow_pwd)
+{
+	if(fd < -1 || fd >= PROCESS_FD_MAX)
+		return NULL;
+	
+	if(fd < 0 && !allow_pwd)
+		return NULL;
+	
+	process_t *pptr = process_lockcur();
+	KASSERT(pptr != NULL);
+	
+	file_t *fptr = (fd < 0) ? pptr->pwd : pptr->fds[fd].file;
+	if(fptr != NULL)
+		file_lock(fptr);
+	
+	process_unlock(pptr);
+	return fptr;
+}
+
+int process_addfd(file_t *newfile)
+{
+	KASSERT(newfile != NULL);
+	
+	process_t *pptr = process_lockcur();
+	KASSERT(pptr != NULL);
+	
+	for(int ff = 0; ff < PROCESS_FD_MAX; ff++)
+	{
+		if(pptr->fds[ff].file == NULL)
+		{
+			pptr->fds[ff].file = newfile;
+			pptr->fds[ff].flags = 0;
+			process_unlock(pptr);
+			return ff;
+		}
+	}
+	
+	process_unlock(pptr);
+	return -EMFILE;
+}
+
+int process_strget(char *kbufptr, const char *uptr, size_t kbuflen)
+{
+	//Todo - validate buffer
+	size_t ustrlen = strlen(uptr);
+	if(ustrlen >= kbuflen)
+		return -ENAMETOOLONG;
+	
+	memcpy(kbufptr, uptr, ustrlen);
+	kbufptr[ustrlen] = '\0';
+	return 0;
+}
+
+int process_memput(void *ubufptr, const void *kbufptr, size_t len)
+{
+	//Todo - validate buffer
+	memcpy(ubufptr, kbufptr, len);
+	return 0;
 }

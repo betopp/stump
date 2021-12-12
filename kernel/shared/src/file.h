@@ -5,6 +5,7 @@
 #define FILE_H
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include "m_spl.h"
 
 //Open file
@@ -37,8 +38,14 @@ ssize_t file_write(file_t *file, const void *buf, ssize_t nbytes);
 //Changes the size of the given open file.
 int file_trunc(file_t *file, off_t size);
 
+//Returns status information about the given open file.
+int file_stat(file_t *file, struct stat *st);
+
 //Changes the file-pointer in the given open file, altering where the next read or write occurs.
 off_t file_seek(file_t *file, off_t offset, int whence);
+
+//Acquires the lock on the given file.
+void file_lock(file_t *file);
 
 //Releases the lock on a file. Frees it if there are no references when unlocked.
 void file_unlock(file_t *file);

@@ -127,19 +127,16 @@ int sigprocmask(int how, const sigset_t *set, sigset_t *oset)
 {
 	//FreeBSD says that threaded applications "must use" the pthreads version of this call.
 	//I assume their implementation is like this - just change the current thread regardless.
-	_sc_sigset_t buf;
-	assert(sizeof(buf) == sizeof(*set));
+	int64_t result;
 	if(set != NULL)
 	{
-		memcpy(&buf, set, sizeof(buf));
+		result = _sc_sigmask(how, set->blockedbits);
 	}
 	else
 	{
-		buf = (_sc_sigset_t){0};
-		how = SIG_BLOCK;
+		result = _sc_sigmask(SIG_BLOCK, 0);
 	}
-	
-	ssize_t result = _sc_sigmask(how, &buf, sizeof(buf));
+
 	if(result < 0)
 	{
 		errno = -result;
@@ -148,19 +145,15 @@ int sigprocmask(int how, const sigset_t *set, sigset_t *oset)
 	
 	if(oset != NULL)
 	{
-		memcpy(oset, &buf, sizeof(buf));
+		oset->blockedbits = result;
 	}
 	
 	return 0;
 }
 
 int sigsuspend(const sigset_t *sigmask)
-{
-	_sc_sigset_t buf;
-	assert(sizeof(buf) == sizeof(*sigmask));
-	memcpy(&buf, sigmask, sizeof(buf));
-	
-	int result = _sc_sigsuspend(&buf, sizeof(buf));
+{	
+	int result = _sc_sigsuspend(sigmask->blockedbits);
 	if(result < 0)
 	{
 		//Should always be the case (EINTR)

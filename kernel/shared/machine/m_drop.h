@@ -6,6 +6,18 @@
 
 #include <stdint.h>
 
+//Reasons that the machine may come back to kernel mode.
+typedef enum m_drop_result_e
+{
+	M_DROP_RESULT_NONE = 0, //None/invalid
+	
+	M_DROP_RESULT_SYSCALL, //Came back to kernel for system-call
+	M_DROP_RESULT_EXCEPTION, //User-mode caused exception
+	
+	M_DROP_RESULT_MAX,
+	
+} m_drop_result_t;
+
 //Holds user context while in kernel.
 typedef struct m_drop_s
 {
@@ -19,6 +31,6 @@ void m_drop_reset(m_drop_t *drop, uintptr_t entry);
 void m_drop_retval(m_drop_t *drop, uintptr_t retval);
 
 //Drops to userspace using the given context.
-void m_drop(const m_drop_t *drop);
+void m_drop(const m_drop_t *drop) __attribute__((noreturn));
 
 #endif //M_DROP_H

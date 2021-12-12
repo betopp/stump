@@ -3,7 +3,6 @@
 //Bryan E. Topp <betopp@betopp.com> 2021
 
 #include <sc.h>
-#include <sc_win.h>
 
 //Type that is supported for passing parameters/returns in system calls
 #define SYSTYPE uintptr_t

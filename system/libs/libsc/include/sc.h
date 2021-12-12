@@ -39,10 +39,10 @@ typedef struct _sc_rlimit_s
 } _sc_rlimit_t;
 
 //Gets the given resource limit in the calling process.
-int _sc_getrlimit(int which, _sc_rlimit_t *buf, size_t len);
+int _sc_getrlimit(int which, _sc_rlimit_t *buf, ssize_t len);
 
 //Sets the given resource limit in the calling process.
-int _sc_setrlimit(int which, const _sc_rlimit_t *buf, size_t len);
+int _sc_setrlimit(int which, const _sc_rlimit_t *buf, ssize_t len);
 
 //Creates a copy of the calling process.
 pid_t _sc_fork(void);
@@ -54,7 +54,7 @@ int _sc_exec(int fd, char *const argv[], char *const envp[]);
 int _sc_find(int dirfd, const char *name);
 
 //Opens a file descriptor referring to a new file with the given name.
-int _sc_create(int dirfd, const char *name, mode_t mode, int special);
+int _sc_make(int dirfd, const char *name, mode_t mode, int rdev);
 
 //Access modes that the kernel recognizes about a file descriptor.
 #define _SC_ACCESS_R 4
@@ -98,7 +98,7 @@ int _sc_dup(int oldfd, int min, bool overwrite);
 typedef struct _sc_dirent_s
 {
 	ino_t ino;
-	char name[240];
+	char name[120];
 } _sc_dirent_t;
 
 //File status returned by the kernel.
@@ -106,13 +106,13 @@ typedef struct _sc_stat_s
 {
 	uint64_t ino;
 	uint64_t dev;
-	uint64_t spec;
+	uint64_t rdev;
 	off_t size;
 	int mode;
 } _sc_stat_t;
 
 //Returns file status information about the file referred to by an open file descriptor.
-ssize_t _sc_stat(int fd, _sc_stat_t *buf, size_t len);
+ssize_t _sc_stat(int fd, _sc_stat_t *buf, ssize_t len);
 
 //Device-specific IO operations recognized by the kernel
 #define _SC_IOCTL_GETATTR 1
@@ -123,20 +123,13 @@ ssize_t _sc_stat(int fd, _sc_stat_t *buf, size_t len);
 #define _SC_IOCTL_ISATTY  6
 
 //Performs device-specific IO operations on a file descriptor.
-int _sc_ioctl(int fd, int operation, void *buf, size_t len);
-
-//Signal set as understood by the kernel
-typedef struct _sc_sigset_s
-{
-	uint64_t blockedbits;
-} _sc_sigset_t;
+int _sc_ioctl(int fd, int operation, void *buf, ssize_t len);
 
 //Alters the signal mask of the calling process. Returns the new mask.
-//Pass in a _sc_sigset_t buffer and size. Returns the size written or a negative error number.
-ssize_t _sc_sigmask(int how, _sc_sigset_t *set_inout, ssize_t set_size);
+int64_t _sc_sigmask(int how, int64_t mask);
 
 //Sleeps, atomically temporarily changing the signal mask when going to sleep.
-ssize_t _sc_sigsuspend(const _sc_sigset_t *set_in, ssize_t set_size);
+int _sc_sigsuspend(int64_t mask);
 
 //Sends a signal.
 int _sc_sigsend(int idtype, int id, int sig);
@@ -181,13 +174,13 @@ typedef struct _sc_rusage_s
 } _sc_rusage_t;
 
 //Returns resource usage information for the given process.
-int _sc_rusage(int who, _sc_rusage_t *buf, size_t len);
+int _sc_rusage(int who, _sc_rusage_t *buf, ssize_t len);
 
 //Returns an address where the calling process has empty address space of the given size.
-intptr_t _sc_mem_avail(intptr_t around, size_t size);
+intptr_t _sc_mem_avail(intptr_t around, ssize_t size);
 
 //Adds new, private, zeroed memory to the calling process's memory space.
-int _sc_mem_anon(uintptr_t addr, size_t size, int access);
+int _sc_mem_anon(uintptr_t addr, ssize_t size, int access);
 
 //Information returned by kernel on return from wait.
 typedef struct _sc_wait_s
@@ -198,7 +191,7 @@ typedef struct _sc_wait_s
 } _sc_wait_t;
 
 //Waits for another process to change state.
-ssize_t _sc_wait(int idtype, pid_t id, int options, _sc_wait_t *buf, size_t len);
+ssize_t _sc_wait(int idtype, pid_t id, int options, _sc_wait_t *buf, ssize_t len);
 
 //Changes priority of the given process; returns the new priority. If priority is negative, does not change it.
 int _sc_priority(int idtype, int id, int priority);

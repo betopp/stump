@@ -210,6 +210,14 @@ int file_trunc(file_t *file, off_t size)
 	return retval;
 }
 
+int file_stat(file_t *file, struct stat *st)
+{
+	ramfs_lock();
+	int retval = ramfs_stat(file->ino, st);
+	ramfs_unlock();
+	return retval;
+}
+
 off_t file_seek(file_t *file, off_t offset, int whence)
 {
 	off_t whence_val = 0;
@@ -247,6 +255,11 @@ off_t file_seek(file_t *file, off_t offset, int whence)
 		file->off = 0;
 	
 	return file->off;
+}
+
+void file_lock(file_t *file)
+{
+	m_spl_acq(&(file->spl));
 }
 
 void file_unlock(file_t *file)

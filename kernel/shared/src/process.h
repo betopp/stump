@@ -31,12 +31,18 @@ typedef struct process_s
 	//ID of the process
 	pid_t pid;
 	
+	//ID of the parent of the process
+	pid_t ppid;
+	
 	//Number of threads that belong to this process
 	int64_t nthreads;
 	
 	//File descriptors
 	#define PROCESS_FD_MAX 128
 	process_fd_t fds[PROCESS_FD_MAX];
+	
+	//Present working directory
+	file_t *pwd;
 	
 	//Memory space that threads in this process use.
 	mem_t mem;
@@ -49,9 +55,25 @@ typedef struct process_s
 //Sets up process tracking and initial process entry.
 void process_init(void);
 
+//Locks the current process and returns a pointer to it.
+process_t *process_lockcur(void);
+
 //Releases the lock on the given process.
 void process_unlock(process_t *process);
 
+//Looks up a file descriptor in the current process and locks the file.
+//Returns NULL if no file is present there.
+//Optionally allows specifying the PWD by passing -1.
+file_t *process_lockfd(int fd, bool allow_pwd);
 
+//Attempts to insert a file into the current process. Returns its file descriptor number or a negative error number.
+//Does not alter the file's reference count.
+int process_addfd(file_t *newfile);
+
+//Attempts to copy a string from the current process into the kernel.
+int process_strget(char *kbufptr, const char *uptr, size_t kbuflen);
+
+//Attempts to copy a buffer from the kernel into the current process.
+int process_memput(void *ubufptr, const void *kbufptr, size_t len);
 
 #endif //PROCESS_H

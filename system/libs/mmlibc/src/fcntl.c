@@ -174,7 +174,7 @@ int _openatm(int fd, const char *path, int flags, mode_t mode)
 		if((mode & S_IFMT) == 0)
 			mode |= S_IFREG;
 		
-		create_result = _sc_create(work_fd, path, mode & ~_umask_get(), 0);
+		create_result = _sc_make(work_fd, path, mode & ~_umask_get(), 0);
 	}
 	
 	//If we didn't create the file (or didn't try), and don't want only to create the file, try getting the existing one.
@@ -472,7 +472,7 @@ int fstat(int fd, struct stat *out)
 	out->st_ino = _sc_stat_buf.ino;
 	out->st_mode = _sc_stat_buf.mode;
 	out->st_size = _sc_stat_buf.size;
-	out->st_rdev = _sc_stat_buf.spec;
+	out->st_rdev = _sc_stat_buf.rdev;
 	
 	return 0;
 }

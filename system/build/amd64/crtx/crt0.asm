@@ -41,7 +41,9 @@ _crt_entry_signal:
 	.spin:
 	jmp .spin
 	
-;System call handlers
+;System call handlers.
+;Each requires one more parameter than the parameters to the call (i.e. which call are we running).
+;If we need to pass a fourth parameter, it can't go in RCX as normal - RCX gets clobbered by syscall.
 global _sc0
 _sc0:
 	syscall
@@ -59,16 +61,19 @@ _sc2:
 	
 global _sc3
 _sc3:
+	mov R10, RCX
 	syscall
 	ret
 	
 global _sc4
 _sc4:
+	mov R10, RCX
 	syscall
 	ret
 	
 global _sc5
 _sc5:	
+	mov R10, RCX
 	syscall
 	ret
 

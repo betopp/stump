@@ -52,6 +52,7 @@ m_drop_retval:
 
 global m_drop ;void m_drop(const m_drop_t *drop);
 m_drop:
+
 	;Disable interrupts so we don't get caught with the wrong GS-base
 	cli
 	

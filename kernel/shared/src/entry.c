@@ -8,6 +8,8 @@
 #include "systar.h"
 #include "process.h"
 #include "thread.h"
+#include "syscalls.h"
+#include "m_panic.h"
 
 //Entered once on bootstrap core. Should set up kernel and return.
 void entry_boot(void)
@@ -27,9 +29,15 @@ void entry_boot(void)
 //Entered on all cores once entry_one returns. Should schedule threads and never return.
 void entry_smp(void)
 {
-	while(1)
-	{
-		//Run threads forever
-		thread_sched();
-	}
+	//Schedule the first thread.
+	//We'll re-enter the kernel somewhere else after it runs.
+	thread_sched();
+	m_panic("thread_sched returned");
+}
+
+//Entered on system-call. Can return to continue executing the thread that made the system-call.
+//Optionally, can ask for machine-specific code to save the user-context that entered here.
+uintptr_t entry_syscall(uintptr_t num, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4, uintptr_t p5)
+{
+	return syscalls_handle(num, p1, p2, p3, p4, p5);
 }
