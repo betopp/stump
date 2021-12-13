@@ -9,7 +9,7 @@
 #include <sys/wait.h>
 
 //Number of terminals we spawn
-#define TERM_MAX 8
+#define TERM_MAX 1
 pid_t term_pids[TERM_MAX];
 
 int main(int argc, const char **argv, const char **envp)

@@ -282,7 +282,13 @@ int elf64_load(file_t *file, mem_t *mem, uintptr_t *entry_out)
 		m_uspc_activate(mem->uspc);
 		
 		KASSERT(phdr->p_memsz >= phdr->p_filesz);
-		ssize_t data_read = file_read(file, (void*)(phdr->p_vaddr), phdr->p_filesz);
+		
+		ssize_t data_read = 0;
+		if(phdr->p_filesz > 0)
+			data_read = file_read(file, (void*)(phdr->p_vaddr), phdr->p_filesz);
+		
+		if(phdr->p_memsz > phdr->p_filesz)
+			memset( ((uint8_t*)(phdr->p_vaddr)) + phdr->p_filesz, 0, phdr->p_memsz - phdr->p_filesz);
 		
 		m_uspc_activate(old_uspc);
 		
@@ -299,6 +305,8 @@ int elf64_load(file_t *file, mem_t *mem, uintptr_t *entry_out)
 			retval = -ENOEXEC;
 			goto cleanup;
 		}
+		
+		
 	}
 	
 	//Success. Write-out the entry point for the ELF, and return 0.
