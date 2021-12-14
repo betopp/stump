@@ -16,5 +16,8 @@ uintptr_t m_frame_alloc(void);
 //Frees a frame, returning it to the frames available to allocate.
 void m_frame_free(uintptr_t frame);
 
+//Copies contents from one frame to another.
+void m_frame_copy(uintptr_t newframe, uintptr_t oldframe);
+
 #endif //M_FRAME_H
 

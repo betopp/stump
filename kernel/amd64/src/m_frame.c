@@ -16,6 +16,11 @@ static uintptr_t m_frame_head;
 //Number of entries on free-list
 static size_t m_frame_count;
 
+//Ranges of memory given by bootloader, not yet put on free-list.
+#define M_FRAME_RANGE_MAX 16
+static size_t m_frame_range_sizes[M_FRAME_RANGE_MAX];
+static uintptr_t m_frame_range_addrs[M_FRAME_RANGE_MAX];
+
 void m_frame_init(void)
 {
 	//Memory map from multiboot bootloader, which we set aside earlier
@@ -25,6 +30,7 @@ void m_frame_init(void)
 	uint64_t pagesize = m_frame_size();
 	
 	//Run through memory map looking for usable frames
+	int ranges_used = 0;
 	uint8_t *entry = multiboot_mmap_storage;
 	while(entry < multiboot_mmap_storage + multiboot_mmap_size)
 	{
@@ -46,9 +52,20 @@ void m_frame_init(void)
 				start_idx = min;
 			
 			uint64_t end_idx = end / pagesize;
-			for(uint64_t ii = start_idx; ii < end_idx; ii++)
+			
+			/*for(uint64_t ii = start_idx; ii < end_idx; ii++)
 			{
 				m_frame_free(ii * pagesize);
+			}*/
+			
+			if(end_idx > start_idx)
+			{
+				if(ranges_used >= M_FRAME_RANGE_MAX)
+					m_panic("m_frame_init mmap crazy");
+				
+				m_frame_range_addrs[ranges_used] = start_idx * pagesize;
+				m_frame_range_sizes[ranges_used] = (end_idx - start_idx) * pagesize;
+				ranges_used++;
 			}
 		}	
 		
@@ -72,7 +89,21 @@ uintptr_t m_frame_alloc(void)
 	
 	if(m_frame_head == 0)
 	{
-		//No frames on free-list.
+		//No frames on free-list. See if we have any frames from the bootloader we have never used.
+		for(int rr = 0; rr < M_FRAME_RANGE_MAX; rr++)
+		{
+			if(m_frame_range_sizes[rr] > 0)
+			{
+				//Hack off the last frame of the range and return it
+				m_frame_range_sizes[rr] -= m_frame_size();
+				uintptr_t retval = m_frame_range_addrs[rr] + m_frame_range_sizes[rr];
+				m_spl_rel(&m_frame_spl);
+				return retval;
+			}
+		}
+		
+		//No frames on the free-list and no ranges from the bootloader yet unused.
+		//We're out of memory.
 		m_spl_rel(&m_frame_spl);
 		return 0;
 	}
@@ -101,4 +132,12 @@ void m_frame_free(uintptr_t frame)
 	m_frame_count++;
 	
 	m_spl_rel(&m_frame_spl);
+}
+
+void m_frame_copy(uintptr_t newframe, uintptr_t oldframe)
+{
+	for(uintptr_t ff = 0; ff < 4096; ff += 8)
+	{
+		pspace_write(newframe + ff, pspace_read(oldframe + ff));
+	}
 }

@@ -127,3 +127,35 @@ int mem_add(mem_t *mem, uintptr_t vaddr, size_t size, int prot)
 	sptr->prot = prot;
 	return 0;
 }
+
+int mem_copy(mem_t *dst, const mem_t *src)
+{
+	size_t pagesize = m_frame_size();
+	
+	for(int ss = 0; ss < MEM_SEG_MAX; ss++)
+	{
+		const mem_seg_t *sptr = &(src->segs[ss]);
+		if(sptr->size <= 0)
+			continue;
+		
+		int alloc_err = mem_add(dst, sptr->vaddr, sptr->size, sptr->prot);
+		if(alloc_err < 0)
+		{
+			mem_clear(dst);
+			return alloc_err;
+		}	
+		
+		for(uintptr_t ff = sptr->vaddr; ff < sptr->vaddr + sptr->size; ff += pagesize)
+		{
+			uintptr_t old_frame = m_uspc_get(src->uspc, ff);
+			uintptr_t new_frame = m_uspc_get(dst->uspc, ff);
+			
+			KASSERT(old_frame != 0);
+			KASSERT(new_frame != 0);
+			
+			m_frame_copy(new_frame, old_frame);
+		}
+	}
+	
+	return 0;
+}

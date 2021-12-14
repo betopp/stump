@@ -12,8 +12,7 @@
 #define THREAD_MAX 1024
 static thread_t thread_table[THREAD_MAX];
 
-//Finds a free entry in the thread table and returns it, locked.
-static thread_t *thread_lockfree(void)
+thread_t *thread_lockfree(void)
 {
 	for(int tt = 0; tt < THREAD_MAX; tt++)
 	{

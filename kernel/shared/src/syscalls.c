@@ -6,10 +6,12 @@
 #include "kassert.h"
 #include "m_panic.h"
 #include "process.h"
+#include "thread.h"
 #include "file.h"
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 
 void k_sc_none(void)
@@ -47,17 +49,30 @@ pid_t k_sc_getppid(void)
 
 pid_t k_sc_getpgid(pid_t pid)
 {
-	(void)pid;
-	KASSERT(0);
-	return -ENOSYS;
+	if(pid < 0)
+		return -EINVAL;
+	
+	process_t *pptr = (pid == 0) ? process_lockcur() : process_lockpid(pid);
+	if(pptr == NULL)
+		return -ESRCH;
+	
+	pid_t pgid = pptr->pgid;
+	process_unlock(pptr);
+	return pgid;
 }
 
 pid_t k_sc_setpgid(pid_t pid, pid_t pgrp)
 {
-	(void)pid;
-	(void)pgrp;
-	KASSERT(0);
-	return -ENOSYS;
+	if(pid < 0)
+		return -EINVAL;
+	
+	process_t *pptr = (pid == 0) ? process_lockcur() : process_lockpid(pid);
+	if(pptr == NULL)
+		return -ESRCH;
+	
+	pptr->pgid = pgrp;
+	process_unlock(pptr);
+	return pgrp;
 }
 
 int k_sc_getrlimit(int which, _sc_rlimit_t *buf, ssize_t len)
@@ -80,8 +95,117 @@ int k_sc_setrlimit(int which, const _sc_rlimit_t *buf, ssize_t len)
 
 pid_t k_sc_fork(void)
 {
-	KASSERT(0);
-	return -ENOSYS;
+	//Error returned on failure
+	int err_ret = 0;
+	
+	//Cleaned up on failure
+	thread_t *childthread = NULL;
+	process_t *child = NULL;
+	
+	//Get current process/thread
+	process_t *pptr = process_lockcur();
+	KASSERT(pptr != NULL);
+	
+	thread_t *tptr = thread_lockcur();
+	KASSERT(tptr != NULL);
+		
+	if(pptr->nthreads > 1)
+	{
+		//More than one thread active in calling process
+		err_ret = -EBUSY;
+		goto cleanup;
+	}
+	
+	//Find space for new process
+	child = process_lockfree();
+	if(child == NULL)
+	{
+		//No room for more processes
+		err_ret = -EAGAIN;
+		goto cleanup;
+	}
+	
+	//Find space for new thread
+	childthread = thread_lockfree();
+	if(childthread == NULL)
+	{
+		//No room for child's first thread
+		err_ret = -EAGAIN;
+		goto cleanup;
+	}
+	
+	//Copy memory to new process
+	KASSERT(child->mem.uspc == 0);
+	KASSERT(child->mem_attempt.uspc == 0);
+	int copy_err = mem_copy(&(child->mem), &(pptr->mem));
+	if(copy_err < 0)
+	{
+		//Failed to copy memory space
+		err_ret = copy_err;
+		goto cleanup;
+	}
+	
+	//Copy state of calling thread and put new thread in its process.
+	memcpy(&(childthread->drop), &(tptr->drop), sizeof(childthread->drop));
+	childthread->state = THREAD_STATE_READY;
+	childthread->process = child;
+	child->nthreads = 1;
+	
+	//Copy file descriptors and PWD
+	//Note - done last because we don't have code to un-do it.
+	for(int ff = 0; ff < PROCESS_FD_MAX; ff++)
+	{
+		if(pptr->fds[ff].file != NULL)
+		{
+			file_lock(pptr->fds[ff].file);
+			child->fds[ff] = pptr->fds[ff];
+			pptr->fds[ff].file->refs++;
+			file_unlock(pptr->fds[ff].file);
+		}
+	}
+	
+	if(pptr->pwd != NULL)
+	{
+		file_lock(pptr->pwd);
+		pptr->pwd->refs++;
+		child->pwd = pptr->pwd;
+		file_unlock(pptr->pwd);
+	}
+	
+	//Success.
+	child->ppid = pptr->pid;
+	child->state = PROCESS_STATE_ALIVE;
+	
+	pid_t child_pid = child->pid;
+
+	thread_unlock(childthread);
+	thread_unlock(tptr);
+	process_unlock(child);
+	process_unlock(pptr);
+	
+	return child_pid;
+	
+cleanup:	
+	
+	if(child != NULL)
+	{
+		mem_clear(&(child->mem));
+		mem_clear(&(child->mem_attempt));
+		child->state = PROCESS_STATE_NONE;
+		process_unlock(child);
+	}
+	
+	if(childthread != NULL)
+	{
+		childthread->state = THREAD_STATE_NONE;
+		thread_unlock(childthread);
+	}
+	
+	process_unlock(pptr);
+	thread_unlock(tptr);
+	
+	KASSERT(err_ret < 0);
+	return err_ret;
 }
 
 int k_sc_exec(int fd, char *const argv[], char *const envp[])
@@ -449,13 +573,134 @@ int k_sc_mem_anon(uintptr_t addr, ssize_t size, int access)
 
 ssize_t k_sc_wait(int idtype, pid_t id, int options, _sc_wait_t *buf, ssize_t len)
 {
-	(void)idtype;
-	(void)id;
-	(void)options;
-	(void)buf;
-	(void)len;
-	KASSERT(0);
-	return -ENOSYS;
+	if(id < 0)
+		return -EINVAL;
+	
+	if(len != sizeof(_sc_wait_t)) //Todo - support versioning here if _sc_wait_t changes
+		return -EINVAL;
+	
+	//Figure out our ID - whose children we're looking for
+	process_t *pptr = process_lockcur();
+	pid_t ourpid = pptr->pid;
+	
+	//Handle special-case - zero PID/PGID means "same group as the caller"
+	if( (idtype == P_PID || idtype == P_PGID) && (id == 0) )
+	{
+		idtype = P_PGID;
+		id = pptr->pgid;
+	}
+	
+	process_unlock(pptr);
+	pptr = NULL;
+	
+	//Run through the process table once and see what's up.
+	//Caller should use _sc_pause and try again if we tell them so.
+	//Anyone currently in the process of posting status will poke their parent after unlocking.
+	bool any_match = false;
+	for(int pp = 0; pp < PROCESS_MAX; pp++)
+	{
+		process_t *otherproc = &(process_table[pp]);
+		m_spl_acq(&(otherproc->spl));
+		
+		if((otherproc->state == PROCESS_STATE_NONE) || (otherproc->ppid != ourpid))
+		{
+			//Not one of our children
+			m_spl_rel(&(otherproc->spl));
+			continue;
+		}
+		
+		//Found a child of ours. Does it match the ID we want?
+		bool matches_id = false;
+		switch(idtype)
+		{
+			case P_PID:
+				matches_id = (otherproc->pid == id);
+				break;
+			case P_PGID:
+				matches_id = (otherproc->pgid == id);
+				break;
+			case P_ALL:
+				matches_id = true;
+				break;
+			default:
+				m_spl_rel(&(otherproc->spl));
+				return -EINVAL;
+		}
+		
+		if(!matches_id)
+		{
+			//It's one of our children, but doesn't match the ID we asked for.
+			m_spl_rel(&(otherproc->spl));
+			continue;
+		}
+		
+		//There's at least one process matching the query.
+		//This means we won't return -ECHILD.
+		any_match = true;
+		
+		//See if the process has the type of status info we're looking for.
+		bool has_status = false;		
+		if( (options & WEXITED) && (WIFEXITED(otherproc->wstatus ) || WIFSIGNALED(otherproc->wstatus)) )
+			has_status = true;
+		if( (options & WSTOPPED) && WIFSTOPPED(otherproc->wstatus) )
+			has_status = true;
+		if( (options & WCONTINUED) && WIFCONTINUED(otherproc->wstatus) )
+			has_status = true;
+		
+		if(!has_status)
+		{
+			//Doesn't have the kind of status information we're looking for.
+			m_spl_rel(&(otherproc->spl));
+			continue;
+		}
+		
+		//Alright, found what we're waiting for.
+		_sc_wait_t output = {0};
+		output.status = otherproc->wstatus;
+		output.pid = otherproc->pid;
+		
+		//Clear their status unless we were asked not to
+		if(!(options & WNOWAIT))
+		{			
+			otherproc->wstatus = 0;
+			
+			if(otherproc->state == PROCESS_STATE_DEAD)
+			{
+				//Just waited on an otherwise dead process. 
+				//It should be mostly cleaned-up already - finish it off.
+				KASSERT(otherproc->mem.uspc == 0);
+				KASSERT(otherproc->mem_attempt.uspc == 0);
+				KASSERT(otherproc->nthreads == 0);
+				for(int ff = 0; ff < PROCESS_FD_MAX; ff++)
+				{
+					KASSERT(otherproc->fds[ff].file == NULL);
+				}
+				KASSERT(otherproc->pwd == NULL);
+				
+				otherproc->state = PROCESS_STATE_NONE;
+				otherproc->ppid = 0;
+			}
+		}
+			
+		//Done. Return the data.
+		m_spl_rel(&(otherproc->spl));
+		
+		int copy_err = process_memput(buf, &output, len);
+		if(copy_err < 0)
+			return copy_err;
+		
+		return len;
+	}
+	
+	//Didn't find anybody with status we wanted.
+	if(!any_match)
+	{
+		//No children match this query - no status would ever be forthcoming.
+		return -ECHILD;
+	}
+	
+	//There are matching children, but none has status right now.
+	return 0; 
 }
 
 int k_sc_priority(int idtype, int id, int priority)

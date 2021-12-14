@@ -43,6 +43,9 @@ typedef struct thread_s
 //Returns 0 on success or a negative error number.
 int thread_new(process_t *process, uintptr_t entry, thread_t **thread_out);
 
+//Locks a free entry in the thread table and returns a pointer to it.
+thread_t *thread_lockfree(void);
+
 //Locks the current thread and returns a pointer to it.
 thread_t *thread_lockcur(void);
 

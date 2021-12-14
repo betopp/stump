@@ -12,9 +12,7 @@
 #include <string.h>
 #include <stddef.h>
 
-//All processes on system
-#define PROCESS_MAX 256
-static process_t process_table[PROCESS_MAX];
+process_t process_table[PROCESS_MAX];
 
 void process_init(void)
 {
@@ -23,6 +21,7 @@ void process_init(void)
 	m_spl_acq(&(pptr->spl));
 	
 	pptr->pid = 1;
+	pptr->state = PROCESS_STATE_ALIVE;
 	
 	//Open the init executable, and put a reference in our process's FD 0
 	file_t *root_file = NULL;
@@ -60,6 +59,52 @@ void process_init(void)
 	
 	thread_unlock(init_thread);
 	process_unlock(pptr);
+}
+
+process_t *process_lockfree(void)
+{
+	for(int pp = 0; pp < PROCESS_MAX; pp++)
+	{
+		process_t *pptr = &(process_table[pp]);
+		if(m_spl_try(&(pptr->spl)))
+		{
+			if(pptr->state == PROCESS_STATE_NONE)
+			{
+				//Found a free slot. Make sure it's got a new, valid ID corresponding to its place in the table.
+				pptr->pid += PROCESS_MAX;
+				if((pptr->pid <= 0) || ((pptr->pid % PROCESS_MAX) != pp))
+					pptr->pid = pp;
+				
+				return pptr; //Still locked
+			}
+			
+			//In use - keep looking
+			m_spl_rel(&(pptr->spl));
+		}
+	}
+	
+	//No room
+	return NULL;
+}
+
+process_t *process_lockpid(pid_t pid)
+{
+	if(pid < 0)
+		return NULL;
+	
+	//Processes are ID'd based on their array index, so we know where this ID must be.
+	process_t *pptr = &(process_table[pid % PROCESS_MAX]);
+	m_spl_acq(&(pptr->spl));
+	
+	if((pptr->state == PROCESS_STATE_NONE) || (pptr->pid != pid))
+	{
+		//Wrong/no process here
+		m_spl_rel(&(pptr->spl));
+		return NULL;
+	}
+	
+	//Got it, keep locked
+	return pptr;
 }
 
 process_t *process_lockcur(void)

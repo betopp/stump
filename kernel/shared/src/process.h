@@ -11,6 +11,18 @@
 #include <sys/types.h>
 #include <stdint.h>
 
+//States a process can be in
+typedef enum process_state_e
+{
+	PROCESS_STATE_NONE = 0,
+	
+	PROCESS_STATE_ALIVE,
+	PROCESS_STATE_DEAD,
+	
+	PROCESS_STATE_MAX
+	
+} process_state_t;
+
 //File descriptor in a process
 typedef struct process_fd_s
 {
@@ -28,11 +40,17 @@ typedef struct process_s
 	//Spinlock protecting the process control block
 	m_spl_t spl;
 	
+	//State of process
+	process_state_t state;
+	
 	//ID of the process
 	pid_t pid;
 	
 	//ID of the parent of the process
 	pid_t ppid;
+	
+	//Process group ID
+	pid_t pgid;
 	
 	//Number of threads that belong to this process
 	int64_t nthreads;
@@ -50,10 +68,23 @@ typedef struct process_s
 	//Spare memory space if we're doing an exec, in case we fail.
 	mem_t mem_attempt;
 	
+	//Status information available for parent to wait() on
+	int wstatus;
+	
 } process_t;
+
+//All processes on system
+#define PROCESS_MAX 256
+extern process_t process_table[PROCESS_MAX];
 
 //Sets up process tracking and initial process entry.
 void process_init(void);
+
+//Locks an empty entry in the process table and returns a pointer to it.
+process_t *process_lockfree(void);
+
+//Locks and returns a pointer to a process by PID. Returns NULL if it doesn't exist.
+process_t *process_lockpid(pid_t pid);
 
 //Locks the current process and returns a pointer to it.
 process_t *process_lockcur(void);

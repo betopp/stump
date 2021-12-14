@@ -34,4 +34,7 @@ void mem_clear(mem_t *mem);
 //Allocates new memory and adds it to a memory space.
 int mem_add(mem_t *mem, uintptr_t vaddr, size_t size, int prot);
 
+//Copies a memory space.
+int mem_copy(mem_t *dst, const mem_t *src);
+
 #endif //MEM_H

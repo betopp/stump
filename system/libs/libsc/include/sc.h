@@ -185,8 +185,7 @@ int _sc_mem_anon(uintptr_t addr, ssize_t size, int access);
 //Information returned by kernel on return from wait.
 typedef struct _sc_wait_s
 {
-	int waitst; //Wait status
-	int exitst; //Exit status
+	int status; //Wait status
 	pid_t pid; //Other process
 } _sc_wait_t;
 

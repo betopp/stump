@@ -40,24 +40,30 @@ pid_t waitpid(pid_t wpid, int *status, int options)
 	
 	options |= WEXITED;
 	
-	_sc_wait_t w = {0};
-	ssize_t result = _sc_wait(wait_idtype, wait_id, options, &w, sizeof(w));
-	if(result < 0)
+	//_sc_wait in our kernel doesn't actually support waiting.
+	//It always behaves like WNOHANG in a normal kernel.
+	//So if we want to really wait here, check for status in a loop and _sc_pause inbetween.
+	while(1)
 	{
-		errno = -result;
-		return -1;
+		_sc_wait_t w = {0};
+		ssize_t result = _sc_wait(wait_idtype, wait_id, options, &w, sizeof(w));
+		if(result > 0)
+		{
+			*status = w.status;
+			return w.pid;
+		}
+		else if(result < 0)
+		{
+			errno = -result;
+			return -1;
+		}
+		else if(options & WNOHANG)
+		{
+			return 0;
+		}
+		
+		_sc_pause();
 	}
-	
-	//Kernel returns a separate "exit code" value and a "waited flags" value.
-	//Build packed status to return.
-	int status_ret = 0;
-	status_ret |= w.exitst; //Exit code from program
-	
-	if(w.waitst & WEXITED) //Reason they got waited upon, as kernel sees it
-		status_ret |= _WIFEXITED_FLAG;
-	
-	*status = status_ret;
-	return w.pid;
 }
 
 int nice(int incr)
