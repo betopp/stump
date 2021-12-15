@@ -24,6 +24,9 @@ typedef struct m_drop_s
 	uintptr_t words[32]; //eh
 } m_drop_t;
 
+//Makes a copy of a context.
+void m_drop_copy(m_drop_t *dst, const m_drop_t *src);
+
 //Resets a user context for execution at the given entry point.
 void m_drop_reset(m_drop_t *drop, uintptr_t entry);
 

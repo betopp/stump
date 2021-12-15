@@ -27,6 +27,61 @@ bits 64
 %define M_DROP_OFF_GSB (8 * 18) ;GS-base
 %define M_DROP_SIZE    (8 * 19)
 
+
+;Called on entry to kernel-mode, to preserve user context on kernel stack
+global m_drop_putstack
+m_drop_putstack:
+	;Put size of structure on the stack, for caller to use
+	push qword M_DROP_SIZE
+	
+	;Leave room on stack for saved context
+	sub RSP, M_DROP_SIZE
+	
+	;Store general purpose registers
+	mov [RSP + M_DROP_OFF_RAX], RAX
+	mov [RSP + M_DROP_OFF_RCX], RCX
+	mov [RSP + M_DROP_OFF_RDX], RDX
+	mov [RSP + M_DROP_OFF_RBX], RBX
+	mov [RSP + M_DROP_OFF_RSP], RSP
+	mov [RSP + M_DROP_OFF_RBP], RBP
+	mov [RSP + M_DROP_OFF_RSI], RSI
+	mov [RSP + M_DROP_OFF_RDI], RDI
+	mov [RSP + M_DROP_OFF_R8 ], R8
+	mov [RSP + M_DROP_OFF_R9 ], R9
+	mov [RSP + M_DROP_OFF_R10], R10
+	mov [RSP + M_DROP_OFF_R11], R11
+	mov [RSP + M_DROP_OFF_R12], R12
+	mov [RSP + M_DROP_OFF_R13], R13
+	mov [RSP + M_DROP_OFF_R14], R14
+	mov [RSP + M_DROP_OFF_R15], R15
+	
+	;Get previously-pushed RIP, just before we were called
+	mov RAX, [RSP + (M_DROP_SIZE + 16) + (8 * 0)]
+	mov [RSP + M_DROP_OFF_RIP], RAX
+	
+	;Get flags, pushed before RIP and CS (ignored)
+	mov RAX, [RSP + (M_DROP_SIZE + 16) + (8 * 2)]
+	mov [RSP + M_DROP_OFF_FLG], RAX
+	
+	;Get RSP, pushed before RIP, CS, and flags
+	mov RAX, [RSP + (M_DROP_SIZE + 16) + (8 * 3)]
+	mov [RSP + M_DROP_OFF_RSP], RAX
+	
+	rdgsbase RAX
+	mov [RSP + M_DROP_OFF_GSB], RAX
+	
+	mov RAX, [RSP + M_DROP_OFF_RAX]
+	
+	add RSP, M_DROP_SIZE
+	add RSP, 8
+	ret
+
+global m_drop_copy ;void m_drop_copy(m_drop_t *dst, const m_drop_t *src);
+m_drop_copy:
+	mov RCX, M_DROP_SIZE / 8
+	rep movsq
+	ret
+
 global m_drop_reset ;void m_drop_reset(m_drop_t *drop, uintptr_t entry);
 m_drop_reset:
 	;Preserve drop location
@@ -58,11 +113,6 @@ m_drop:
 	
 	;Set aside kernel GS-base in spare GS-base register
 	swapgs
-
-	;Set aside kernel stack-pointer in this CPU's task-state segment.
-	extern cpuinit_gettss
-	call cpuinit_gettss
-	mov [RAX + 4], RSP ;KSP parameter into RSP0 for this CPU 
 	
 	;Set aside the desired RIP, CS, RFLAGS, RSP, SS on our stack.
 	;They'll be popped off once we've restored all other registers.

@@ -146,10 +146,13 @@ pid_t k_sc_fork(void)
 	}
 	
 	//Copy state of calling thread and put new thread in its process.
-	memcpy(&(childthread->drop), &(tptr->drop), sizeof(childthread->drop));
+	m_drop_copy(&(childthread->drop), &(tptr->drop));
 	childthread->state = THREAD_STATE_READY;
 	childthread->process = child;
 	child->nthreads = 1;
+	
+	//Child thread returns 0
+	m_drop_retval(&(childthread->drop), 0);
 	
 	//Copy file descriptors and PWD
 	//Note - done last because we don't have code to un-do it.
@@ -720,7 +723,19 @@ int64_t k_sc_getrtc(void)
 
 void k_sc_pause(void)
 {
+	thread_t *tptr = thread_lockcur();
+	if(tptr->unpauses > tptr->unpauses_past)
+	{
+		//Somebody has unpaused us since we last returned. Return immediately.
+		tptr->unpauses_past = tptr->unpauses;
+		thread_unlock(tptr);
+		return;
+	}
 	
+	//Nobody's unpaused us since we last returned. This thread blocks.
+	tptr->state = THREAD_STATE_WAIT;
+	thread_unlock(tptr);
+	return;
 }
 
 

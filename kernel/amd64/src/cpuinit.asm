@@ -315,6 +315,12 @@ cpuinit_entry_all:
 	add RAX, CPUINIT_STACK_SIZE ;Start at top of stack
 	mov RSP, RAX
 	
+	;Store top-of-stack in our task state segment
+	mov RAX, RBX ;Get core number
+	shl RAX, CPUINIT_TSS_SIZE_LOG2
+	add RAX, cpuinit_ktss_storage
+	mov [RAX + 4], RSP
+	
 	;If we're not core 0, run through kernel setup.
 	cmp RBX, 0
 	jne .notcore0
@@ -435,9 +441,6 @@ cpuinit_syscall_64:
 	;All flags are cleared on entry (given our SFMASK MSR setting).
 	;So interrupts are already disabled at this point.
 	
-	;Swap back to kernel GS
-	swapgs
-	
 	;The SYSCALL instruction has saved the old RIP and RFLAGS in RCX and R11, respectively.
 	;The user has passed parameters to us in RDI, RSI, RDX, R8, and R9 as usual.
 	;The parameter that they'd normally put in RCX is passed in R10 instead.
@@ -457,27 +460,29 @@ cpuinit_syscall_64:
 	;Swap over to the kernel stack, preserving the user's then in RAX.
 	xchg RAX, RSP
 	
-	;Save RSP/RIP/RFLAGS from userspace
-	push RAX ;User RSP
-	push RCX ;User RIP
-	push R11 ;User RFLAGS
+	;Put the return-address and stuff on the stack like taking an interrupt
+	push qword 0 ;SS (we don't bother saving this)
+	push RAX ;RSP
+	push R11 ;RFLAGS
+	push qword 0 ;CS (we don't bother saving this)
+	push RCX ;RIP
+	
+	;Put the rest of the user's context, at entry, on the stack
+	extern m_drop_putstack
+	call m_drop_putstack
+	sub RSP, 16
+	sub RSP, [RSP]
+	
+	;Swap back to kernel GS
+	swapgs
 	
 	;Restore the fourth parameter in its usual place, per calling convention
 	mov RCX, R10
 	
 	;Call the kernel to handle the system-call.
+	push RSP ;With last parameter as saved context
 	extern entry_syscall
 	call entry_syscall
-	
-	;If the kernel returns from entry_syscall, we can use a fast system-call return path.
-	;Return value is already in RAX as intended.
-
-	;Restore RCX and R11, for sysret to put back into RIP and RLAGS, and user's RSP.
-	pop R11 ;User RFLAGS
-	pop RCX ;User RIP
-	pop RSP ;User RSP
-	swapgs ;Restore user GS-base
-	o64 a64 sysret ;RIP = RCX, RFLAGS = R11
 	
 section .data
 bits 64

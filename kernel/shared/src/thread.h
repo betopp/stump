@@ -37,6 +37,12 @@ typedef struct thread_s
 	//User context
 	m_drop_t drop;
 	
+	//Number of times the thread has been unpaused
+	int64_t unpauses;
+	
+	//Last value of unpauses when pause returned
+	int64_t unpauses_past;
+	
 } thread_t;
 
 //Makes a new thread. Outputs a pointer to it, still locked.
