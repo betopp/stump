@@ -6,10 +6,17 @@
 #include <string.h>
 #include <signal.h>
 
-char **_default_environ = (char*[]){ "STUMP=" BUILDVERSION , NULL };
+char **_default_environ = (char*[]){ "stump=" BUILDVERSION , NULL };
 
 void _libc_entry(int argc, char **argv, char **envp)
 {
+	//Count argv if we need to
+	if(argc == 0)
+	{
+		while(argv != NULL && argv[argc] != NULL)
+			argc++;
+	}
+	
 	//Set aside initial environment location
 	extern char **environ;
 	if(envp != NULL)

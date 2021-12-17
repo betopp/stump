@@ -7,6 +7,8 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <string.h>
+
 
 int fexecve(int fd, char *const argv[], char *const envp[])
 {

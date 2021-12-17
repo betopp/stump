@@ -151,7 +151,7 @@ void kpage_free(void *ptr, size_t nbytes)
 	size_t npages = (nbytes + pagesize - 1) / pagesize;
 	
 	//Unmap and free that many frames
-	for(uintptr_t pp = (uintptr_t)ptr; pp < (uintptr_t)ptr + (npages * pagesize); pp++)
+	for(uintptr_t pp = (uintptr_t)ptr; pp < (uintptr_t)ptr + (npages * pagesize); pp += pagesize)
 	{
 		uintptr_t frame = m_kspc_get(pp);
 		KASSERT(frame != 0);

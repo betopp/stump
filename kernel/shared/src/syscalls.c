@@ -4,10 +4,13 @@
 
 #include "syscalls.h"
 #include "kassert.h"
+#include "argenv.h"
 #include "m_panic.h"
+#include "m_frame.h"
 #include "process.h"
 #include "thread.h"
 #include "file.h"
+#include "elf64.h"
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -211,13 +214,84 @@ cleanup:
 	return err_ret;
 }
 
-int k_sc_exec(int fd, char *const argv[], char *const envp[])
+intptr_t k_sc_exec(int fd, char *const argv[], char *const envp[])
 {
-	(void)fd;
-	(void)argv;
-	(void)envp;
-	KASSERT(0);
-	return -ENOSYS;
+	//Stuff for cleaning up safely
+	process_t *pptr = NULL;
+	file_t *elf_file = NULL;
+	int err_ret = 0;
+	
+	//Get the ELF file and try to load it into this process's spare memory space.
+	elf_file = process_lockfd(fd, false);
+	if(elf_file == NULL)
+	{
+		err_ret = -EBADF;
+		goto cleanup;
+	}
+	
+	pptr = process_lockcur();
+	KASSERT(pptr->mem_attempt.uspc == 0);
+	if(pptr->nthreads > 1)
+	{
+		//Can't exec while other threads are running
+		err_ret = -EBUSY;
+		goto cleanup;
+	}
+	
+	uintptr_t elf_entry = 0;
+	int elf_err = elf64_load(elf_file, &(pptr->mem_attempt), &elf_entry);
+	if(elf_err < 0)
+	{
+		//Failed to load the new process image.
+		err_ret = elf_err;
+		goto cleanup;
+	}
+	
+	//Try to copy the arg/env buffer into the new memory space	
+	uintptr_t argenv_addr = 0;
+	int argenv_err = argenv_load(&(pptr->mem_attempt), argv, envp, &argenv_addr);
+	if(argenv_err < 0)
+	{
+		//Failed to copy argv/envp
+		err_ret = argenv_err;
+		goto cleanup;
+	}
+	
+	//Set up the new memory space successfully. Switch over and ditch the old memory.
+	m_uspc_activate(pptr->mem_attempt.uspc);
+	mem_clear(&(pptr->mem));
+	pptr->mem = pptr->mem_attempt;
+	memset(&(pptr->mem_attempt), 0, sizeof(pptr->mem_attempt));
+	
+	//Done setting up the process...
+	process_unlock(pptr);
+	pptr = NULL;
+	
+	//Reset the user context for the calling thread, to start at the new entry point
+	thread_t *tptr = thread_lockcur();
+	m_drop_reset(&(tptr->drop), elf_entry);
+	m_drop_retval(&(tptr->drop), argenv_addr);
+	thread_unlock(tptr);
+	
+	//Successo
+	return argenv_addr;
+	
+cleanup:
+	if(pptr != NULL)
+	{
+		mem_clear(&(pptr->mem_attempt));		
+		process_unlock(pptr);
+		pptr = NULL;
+	}
+	
+	if(elf_file != NULL)
+	{
+		file_unlock(elf_file);
+		elf_file = NULL;
+	}
+		
+	KASSERT(err_ret < 0);
+	return err_ret;
 }
 
 int k_sc_find(int dirfd, const char *name)
@@ -570,6 +644,14 @@ int k_sc_mem_anon(uintptr_t addr, ssize_t size, int access)
 	(void)addr;
 	(void)size;
 	(void)access;
+	KASSERT(0);
+	return -ENOSYS;
+}
+
+int k_sc_mem_free(uintptr_t addr, ssize_t size)
+{
+	(void)addr;
+	(void)size;
 	KASSERT(0);
 	return -ENOSYS;
 }

@@ -10,6 +10,15 @@ align 16
 global _crt_entry
 _crt_entry:
 
+	;RAX points to our argv/envp pointers.
+	;Load those up for the call to libc entry.
+	cmp RAX, 0
+	je .after_args
+	mov RDI, 0 ;Let libc entry count them
+	mov RSI, [RAX]
+	mov RDX, [RAX + 8]
+	.after_args:
+
 	;Set up TLS and stack for initial thread
 	mov RAX, _crt_tls0
 	wrgsbase RAX

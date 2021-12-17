@@ -56,7 +56,7 @@ typedef struct process_s
 	int64_t nthreads;
 	
 	//File descriptors
-	#define PROCESS_FD_MAX 128
+	#define PROCESS_FD_MAX 64
 	process_fd_t fds[PROCESS_FD_MAX];
 	
 	//Present working directory
@@ -74,7 +74,7 @@ typedef struct process_s
 } process_t;
 
 //All processes on system
-#define PROCESS_MAX 256
+#define PROCESS_MAX 64
 extern process_t process_table[PROCESS_MAX];
 
 //Sets up process tracking and initial process entry.
@@ -106,5 +106,8 @@ int process_strget(char *kbufptr, const char *uptr, size_t kbuflen);
 
 //Attempts to copy a buffer from the kernel into the current process.
 int process_memput(void *ubufptr, const void *kbufptr, size_t len);
+
+//Attempts to copy a buffer from the current process into the kernel.
+int process_memget(void *kbufptr, const void *ubufptr, size_t len);
 
 #endif //PROCESS_H

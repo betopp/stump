@@ -6,6 +6,7 @@
 #include "thread.h"
 #include "kassert.h"
 #include "elf64.h"
+#include "argenv.h"
 #include "thread.h"
 #include "m_tls.h"
 #include <errno.h>
@@ -52,10 +53,16 @@ void process_init(void)
 	int elf_err = elf64_load(init_file, &(pptr->mem), &entry);
 	KASSERT(elf_err == 0);
 	
+	uintptr_t argenv_loaded = 0;
+	int argenv_err = argenv_load(&(pptr->mem), (char*[]){"sinit", NULL}, (char*[]){"stump=1", NULL}, &argenv_loaded);
+	KASSERT(argenv_err == 0);
+	
 	//Make thread to run initial process
 	thread_t *init_thread = NULL;
 	int thread_err = thread_new(pptr, entry, &init_thread);
 	KASSERT(thread_err == 0);
+	
+	m_drop_retval(&(init_thread->drop), argenv_loaded);
 	
 	thread_unlock(init_thread);
 	process_unlock(pptr);
@@ -180,3 +187,4 @@ int process_memput(void *ubufptr, const void *kbufptr, size_t len)
 	memcpy(ubufptr, kbufptr, len);
 	return 0;
 }
+

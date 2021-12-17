@@ -48,7 +48,8 @@ int _sc_setrlimit(int which, const _sc_rlimit_t *buf, ssize_t len);
 pid_t _sc_fork(void);
 
 //Replaces the calling process image (all its memory) with that in the given file.
-int _sc_exec(int fd, char *const argv[], char *const envp[]);
+//Only returns on failure - intptr_t return value is used in kernel-side mumbo jumbo.
+intptr_t _sc_exec(int fd, char *const argv[], char *const envp[]);
 
 //Opens a file descriptor referring to the given existing file.
 int _sc_find(int dirfd, const char *name);
@@ -181,6 +182,9 @@ intptr_t _sc_mem_avail(intptr_t around, ssize_t size);
 
 //Adds new, private, zeroed memory to the calling process's memory space.
 int _sc_mem_anon(uintptr_t addr, ssize_t size, int access);
+
+//Removes memory from the calling process's memory space.
+int _sc_mem_free(uintptr_t addr, ssize_t size);
 
 //Information returned by kernel on return from wait.
 typedef struct _sc_wait_s

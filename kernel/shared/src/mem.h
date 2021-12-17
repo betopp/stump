@@ -34,6 +34,9 @@ void mem_clear(mem_t *mem);
 //Allocates new memory and adds it to a memory space.
 int mem_add(mem_t *mem, uintptr_t vaddr, size_t size, int prot);
 
+//Returns a free address where the given amount of bytes could be mapped.
+intptr_t mem_avail(mem_t *mem, uintptr_t around, size_t size);
+
 //Copies a memory space.
 int mem_copy(mem_t *dst, const mem_t *src);
 

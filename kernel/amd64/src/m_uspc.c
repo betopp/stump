@@ -21,7 +21,7 @@ void m_uspc_range(uintptr_t *start_out, uintptr_t *end_out)
 	
 	//End halfway through low-half of 48-bit canonical space.
 	//(We might want that other quarter of the space later...)
-	*end_out = 0x00003FFFFFFFFFFFul;
+	*end_out = 0x00003FFFFFFFF000ul;
 }
 
 m_uspc_t m_uspc_new(void)
