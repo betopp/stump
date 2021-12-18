@@ -128,6 +128,7 @@ void systar_unpack(void)
 		file_t *dir_file;
 		int dir_file_result = file_find(NULL, "/", &dir_file);
 		KASSERT(dir_file_result >= 0);
+		dir_file->access = 7;
 		while(1)
 		{
 			const char *slash = strchr(path_remain, '/');
@@ -158,6 +159,7 @@ void systar_unpack(void)
 			}
 			
 			KASSERT(next_dir_file_result >= 0);
+			next_dir_file->access = 7;
 			
 			//Close the previous one and advance
 			dir_file->refs = 0;
@@ -175,6 +177,7 @@ void systar_unpack(void)
 			file_t *file;
 			int file_result = file_make(dir_file, path_remain, mode, spec, &file);
 			KASSERT(file_result >= 0);
+			file->access = 7;
 			
 			//Write the contents into the file
 			if(S_ISREG(mode))

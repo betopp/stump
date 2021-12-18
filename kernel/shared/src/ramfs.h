@@ -26,6 +26,9 @@ int ramfs_make(ino_t dir, const char *name, mode_t mode, dev_t special, ino_t *i
 //Returns 0 on success or a negative error number.
 int ramfs_find(ino_t dir, const char *name, ino_t *ino_out);
 
+//Removes a directory entry, optionally from a specific inode.
+int ramfs_unlink(ino_t dir, const char *name, ino_t rmino, int flags);
+
 //Reads from an inode. Returns the number of bytes read or a negative error number.
 ssize_t ramfs_read(ino_t ino, off_t off, void *buf, ssize_t len);
 

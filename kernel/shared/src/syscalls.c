@@ -10,12 +10,12 @@
 #include "process.h"
 #include "thread.h"
 #include "file.h"
+#include "pipe.h"
 #include "elf64.h"
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-
 
 void k_sc_none(void)
 {
@@ -229,6 +229,12 @@ intptr_t k_sc_exec(int fd, char *const argv[], char *const envp[])
 		goto cleanup;
 	}
 	
+	if(!(elf_file->access & _SC_ACCESS_X))
+	{
+		err_ret = -EBADF;
+		goto cleanup;
+	}
+	
 	pptr = process_lockcur();
 	KASSERT(pptr->mem_attempt.uspc == 0);
 	if(pptr->nthreads > 1)
@@ -262,6 +268,22 @@ intptr_t k_sc_exec(int fd, char *const argv[], char *const envp[])
 	mem_clear(&(pptr->mem));
 	pptr->mem = pptr->mem_attempt;
 	memset(&(pptr->mem_attempt), 0, sizeof(pptr->mem_attempt));
+	
+	//Drop any file descriptors not flagged keep-on-exec
+	for(int ff = 0; ff < PROCESS_FD_MAX; ff++)
+	{
+		if(pptr->fds[ff].file == NULL)
+			continue;
+	
+		if(pptr->fds[ff].flags & _SC_FLAG_KEEPEXEC)
+			continue;
+		
+		file_lock(pptr->fds[ff].file);
+		pptr->fds[ff].file->refs--;
+		file_unlock(pptr->fds[ff].file);
+		pptr->fds[ff].file = NULL;
+		pptr->fds[ff].flags = 0;
+	}
 	
 	//Done setting up the process...
 	process_unlock(pptr);
@@ -358,11 +380,40 @@ int k_sc_make(int dirfd, const char *name, mode_t mode, int rdev)
 
 int k_sc_access(int fd, int gain, int lose)
 {
-	(void)fd;
-	(void)gain;
-	(void)lose;
-	KASSERT(0);
-	return -ENOSYS;
+	if((gain < 0) || (lose < 0))
+		return -EINVAL;
+	
+	file_t *fptr = process_lockfd(fd, false);
+	if(fptr == NULL)
+		return -EBADF;
+	
+	int oldaccess = fptr->access;
+	fptr->access |= gain;
+	fptr->access &= ~lose;
+	
+	//If this is a pipe, we need to change its reference-count of readers/writers
+	if(S_ISFIFO(fptr->mode))
+	{
+		pipe_t *pipe = pipe_lockid(fptr->special);
+		KASSERT(pipe != NULL);
+		
+		if(oldaccess & _SC_ACCESS_R)
+			pipe->refs_file_r--;
+		if(oldaccess & _SC_ACCESS_W)
+			pipe->refs_file_w--;
+		
+		if(fptr->access & _SC_ACCESS_R)
+			pipe->refs_file_r++;
+		if(fptr->access & _SC_ACCESS_W)
+			pipe->refs_file_w++;
+		
+		pipe_unlock(pipe);
+	}
+	
+	int retval = fptr->access;
+	KASSERT(retval >= 0);
+	file_unlock(fptr);
+	return retval;
 }
 
 ssize_t k_sc_read(int fd, void *buf, ssize_t len)
@@ -411,12 +462,32 @@ off_t k_sc_trunc(int fd, off_t size)
 
 int k_sc_unlink(int dirfd, const char *name, int rmfd, int flags)
 {
-	(void)dirfd;
-	(void)name;
-	(void)rmfd;
-	(void)flags;
-	KASSERT(0);
-	return -ENOSYS;
+	//Process can specify rmfd==-1 for "remove any file with this name".
+	//They can also specify a file descriptor in rmfd - then, only that exact file may be unlinked.
+	if(rmfd < -1)
+		return -EINVAL;
+	
+	file_t *dirptr = process_lockfd(dirfd, true);
+	if(dirptr == NULL)
+		return -EBADF;
+	
+	file_t *rmptr = NULL;
+	if(rmfd != -1)
+	{
+		rmptr = process_lockfd(rmfd, false);
+		if(rmptr == NULL)
+		{
+			file_unlock(dirptr);
+			return -EBADF;
+		}
+	}
+	
+	int result = file_unlink(dirptr, name, rmptr, flags);
+	file_unlock(dirptr);
+	if(rmptr != NULL)
+		file_unlock(rmptr);
+	
+	return result;
 }
 
 int k_sc_flag(int fd, int set, int clear)

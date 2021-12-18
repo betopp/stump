@@ -155,6 +155,9 @@ int _openatm(int fd, const char *path, int flags, mode_t mode)
 		
 	//Alright, we've resolved all but the last pathname component.
 	//We have a file descriptor that references the directory where it should be made or found.
+	//Try to get as much access as we can on that.
+	int dir_access_err = _sc_access(work_fd, _SC_ACCESS_R | _SC_ACCESS_W | _SC_ACCESS_X, 0);
+	(void)dir_access_err;
 	
 	//Try to create the file first, if creating it is permitted.
 	//This will fail if it already exists, but we'll then try to open it.
@@ -244,7 +247,24 @@ int _openatm(int fd, const char *path, int flags, mode_t mode)
 	if((fd_ret >= 0) && !(flags & O_CLOEXEC))
 		_sc_flag(fd_ret, _SC_FLAG_KEEPEXEC, 0);
 			
-	//Todo - try to flag it for reading/writing/whatever
+	int access_desired = 0;
+	if(flags & O_RDONLY)
+		access_desired |= _SC_ACCESS_R;
+	if(flags & O_EXEC)
+		access_desired |= _SC_ACCESS_X;
+	if(flags & O_WRONLY)
+		access_desired |= _SC_ACCESS_W;
+	if(flags & O_RDWR)
+		access_desired |= _SC_ACCESS_W | _SC_ACCESS_R; //Not stricly necessary since RDWR == RDONLY | WRONLY
+	
+	int access_err = _sc_access(fd_ret, access_desired, 0);
+	if(access_err < 0)
+	{
+		errno = -access_err;
+		_sc_close(fd_ret);
+		fd_ret = -1;
+	}
+	
 	return fd_ret;
 }
 
@@ -560,7 +580,7 @@ int fchdir(int fd)
 int chdir(const char *path)
 {
 	//Process needs exec permission on a directory to change to it. Try to open the path for exec.
-	int fd = _openatm(AT_FDCWD, path, O_EXEC | O_CLOEXEC, 0);
+	int fd = _openatm(AT_FDCWD, path, O_EXEC | O_CLOEXEC | O_RDWR, 0);
 	if(fd < 0)
 		return -1; //_openatm sets errno
 	
@@ -608,6 +628,14 @@ int funlinkat(int dfd, const char *path, int fd, int flag)
 		errno = -work_fd;
 		return -1;
 	}	
+	
+	int access_err = _sc_access(work_fd, _SC_ACCESS_W, 0);
+	if(access_err < 0)
+	{
+		//Don't have permission on this directory
+		errno = -access_err;
+		return -1;
+	}
 	
 	//We now have the final pathname component and the directory that actually contains it.
 	//Try to remove it.

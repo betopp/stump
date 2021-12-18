@@ -5,6 +5,7 @@
 #include "ramfs.h"
 #include "kpage.h"
 #include "kassert.h"
+#include "pipe.h"
 #include "m_spl.h"
 #include "m_panic.h"
 #include <sys/types.h>
@@ -12,6 +13,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <string.h>
+#include <fcntl.h>
 
 //Inode in our RAM filesystem
 typedef struct ramfs_ino_s
@@ -101,6 +103,16 @@ static void ramfs_checkrefs(ino_t ino)
 		return;
 	
 	//No links or open files. Free this inode.
+	
+	//If the inode referred to a named pipe, the pipe has one less reference.
+	if(S_ISFIFO(iptr->mode))
+	{
+		pipe_t *pipe = pipe_lockid(iptr->special);
+		KASSERT(pipe != NULL);
+		pipe->refs_ino--;
+		pipe_unlock(pipe);
+	}
+	
 	ramfs_trunc(ino, 0);
 	iptr->mode = -1; //Poison
 	iptr->size = -1; //Poison
@@ -269,6 +281,15 @@ int ramfs_make(ino_t dir, const char *name, mode_t mode, dev_t special, ino_t *i
 		goto failure;
 	}
 	
+	//If this is a pipe, it starts with one reference
+	if(S_ISFIFO(mode))
+	{
+		pipe_t *pipe = pipe_lockid(special);
+		KASSERT(pipe != NULL);
+		pipe->refs_ino++;
+		pipe_unlock(pipe);
+	}
+	
 	//The new file starts with one link in the filesystem.
 	newino->nlinks = 1;
 	*ino_out = inoblock;
@@ -323,6 +344,86 @@ int ramfs_find(ino_t dir, const char *name, ino_t *ino_out)
 	}
 	
 	//Didn't find an entry with this name
+	return -ENOENT;
+}
+
+int ramfs_unlink(ino_t dir, const char *name, ino_t rmino, int flags)
+{
+	if((name == NULL) || (name[0] == '\0') || (!strcmp(name, ".")) || (!strcmp(name, "..")))
+		return -EINVAL;
+	
+	KASSERT(dir < RAMFS_BLOCK_MAX);
+	ramfs_ino_t *dptr = &(ramfs_blocks[dir].ino);
+	if(!S_ISDIR(dptr->mode))
+		return -ENOTDIR;
+	
+	//Search for the directory entry with this name.
+	off_t nextoff = 0;
+	while(nextoff < dptr->size)
+	{
+		ramfs_dirent_t de;
+		ssize_t read = ramfs_read(dir, nextoff, &de, sizeof(de));
+		if(read < 0)
+			return read;
+		if(read != sizeof(de))
+			return -EIO;
+		
+		if(!strcmp(de.name, name))
+		{
+			//Found the name we want to unlink.
+			//Are we trying to unlink a specific ino too?
+			if(rmino != 0 && rmino != de.ino)
+			{
+				//The link no longer refers to the file we're trying to remove.
+				return -EDEADLK; //Like FreeBSD funlinkat
+			}
+			
+			KASSERT(de.ino < RAMFS_BLOCK_MAX);
+			ramfs_ino_t *unlinked = &(ramfs_blocks[de.ino].ino);
+			
+			//Are we intending to remove a directory?
+			if(flags & AT_REMOVEDIR)
+			{
+				if(!S_ISDIR(unlinked->mode))
+				{
+					//Wanted to remove a directory but this isn't
+					return -ENOTDIR;
+				}
+			}
+			else
+			{
+				if(S_ISDIR(unlinked->mode))
+				{
+					//Didn't want to remove a directory, but this is one
+					return -EISDIR;
+				}
+			}			
+			
+			//Copy the last directory entry over the one being removed. Then truncate by one directory entry.
+			ramfs_dirent_t lastde;
+			ssize_t lastread = ramfs_read(dir, dptr->size - sizeof(lastde), &lastde, sizeof(lastde));
+			KASSERT(lastread == sizeof(lastde));
+			
+			ssize_t overwritten = ramfs_write(dir, nextoff, &lastde, sizeof(lastde));
+			KASSERT(overwritten == sizeof(lastde));
+			
+			off_t trunced = ramfs_trunc(dir, dptr->size - sizeof(lastde));
+			KASSERT(trunced >= 0);
+			KASSERT((size_t)dptr->size >= 2 * sizeof(ramfs_dirent_t)); //Always have "." and ".."
+			
+			//File being referred to, now has one less reference.
+			unlinked->nlinks--;
+			ramfs_checkrefs(de.ino);
+			
+			//Success
+			return 0;
+		}
+
+		//Not the name we wanted to unlink
+		nextoff += sizeof(de);
+	}
+	
+	//Didn't find the file to unlink
 	return -ENOENT;
 }
 

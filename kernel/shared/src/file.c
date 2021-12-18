@@ -6,6 +6,8 @@
 #include "ramfs.h"
 #include "m_spl.h"
 #include "kassert.h"
+#include "pipe.h"
+#include "sc.h"
 #include <errno.h>
 #include <stddef.h>
 #include <string.h>
@@ -43,7 +45,10 @@ static file_t *file_lockfree(void)
 int file_make(file_t *dir, const char *name, mode_t mode, dev_t special, file_t **file_out)
 {
 	if(dir == NULL)
-		return -EINVAL;
+		return -EBADF;
+	
+	if(!(dir->access & _SC_ACCESS_W))
+		return -EBADF;
 	
 	if(!S_ISDIR(dir->mode))
 		return -ENOTDIR;
@@ -54,7 +59,7 @@ int file_make(file_t *dir, const char *name, mode_t mode, dev_t special, file_t 
 	if((!strcmp(name, ".")) || (!strcmp(name, "..")))
 		return -EINVAL;
 	
-	if(!(S_ISDIR(mode) || S_ISCHR(mode) || S_ISREG(mode) || S_ISLNK(mode)))
+	if(!(S_ISDIR(mode) || S_ISCHR(mode) || S_ISREG(mode) || S_ISLNK(mode) || S_ISFIFO(mode)))
 		return -EINVAL;
 	
 	//Make room for the new open file entry.
@@ -65,13 +70,36 @@ int file_make(file_t *dir, const char *name, mode_t mode, dev_t special, file_t 
 		return -ENFILE;
 	}
 	
-	ramfs_lock();
-	
+	//If this is a named pipe, it needs a pipe structure.
+	if(S_ISFIFO(mode))
+	{
+		pipe_t *pipe = NULL;
+		int pipe_err = pipe_new(&pipe);
+		if(pipe_err < 0)
+		{
+			//Failed to make pipe
+			file_unlock(newfile);
+			return pipe_err;
+		}
+		special = pipe->id;
+		pipe->refs_file++;
+		pipe_unlock(pipe);
+	}
+		
 	//Try to make the inode in the filesystem
+	ramfs_lock();
 	ino_t ino_made = 0;
 	int make_err = ramfs_make(dir->ino, name, mode, special, &ino_made);
 	if(make_err < 0)
 	{
+		if(S_ISFIFO(mode))
+		{
+			pipe_t *pipe = pipe_lockid(special);
+			KASSERT(pipe != NULL);
+			pipe->refs_file = 0;
+			pipe_unlock(pipe);
+		}
+		
 		ramfs_unlock();
 		m_spl_rel(&(newfile->spl));
 		return make_err;
@@ -87,6 +115,7 @@ int file_make(file_t *dir, const char *name, mode_t mode, dev_t special, file_t 
 	newfile->mode = mode;
 	newfile->special = special;
 	newfile->off = 0;
+	newfile->access = 0;
 	
 	newfile->refs = 1;
 	*file_out = newfile;
@@ -153,6 +182,7 @@ int file_find(file_t *dir, const char *name, file_t **file_out)
 	newfile->mode = st.st_mode;
 	newfile->special = st.st_rdev;
 	newfile->off = 0;
+	newfile->access = 0;
 	
 	//Return the new file with one reference, still locked.
 	newfile->refs = 1;
@@ -160,8 +190,29 @@ int file_find(file_t *dir, const char *name, file_t **file_out)
 	return 0;
 }
 
+int file_unlink(file_t *dir, const char *name, file_t *rmfile, int flags)
+{
+	if(dir == NULL)
+		return -EBADF;
+	
+	if(!(dir->access & _SC_ACCESS_W))
+		return -EBADF;
+	
+	if(!S_ISDIR(dir->mode))
+		return -ENOTDIR;
+	
+	ramfs_lock();
+	int result = ramfs_unlink(dir->ino, name, (rmfile != NULL) ? rmfile->ino : 0, flags);
+	ramfs_unlock();
+	
+	return result;
+}
+
 ssize_t file_read(file_t *file, void *buf, ssize_t nbytes)
 {
+	if(!(file->access & _SC_ACCESS_R))
+		return -EBADF;
+	
 	if(S_ISCHR(file->mode))
 		return -ENOSYS;
 	
@@ -178,6 +229,9 @@ ssize_t file_read(file_t *file, void *buf, ssize_t nbytes)
 
 ssize_t file_write(file_t *file, const void *buf, ssize_t nbytes)
 {
+	if(!(file->access & _SC_ACCESS_W))
+		return -EBADF;
+	
 	if(S_ISCHR(file->mode))
 		return -ENOSYS;
 	
@@ -197,6 +251,9 @@ ssize_t file_write(file_t *file, const void *buf, ssize_t nbytes)
 
 int file_trunc(file_t *file, off_t size)
 {
+	if(!(file->access & _SC_ACCESS_W))
+		return -EBADF;
+	
 	if(S_ISDIR(file->mode))
 		return -EISDIR;
 	
@@ -269,6 +326,20 @@ void file_unlock(file_t *file)
 		ramfs_lock();
 		ramfs_dec(file->ino);
 		ramfs_unlock();
+		
+		if(S_ISFIFO(file->mode))
+		{
+			pipe_t *pipe = pipe_lockid(file->special);
+			KASSERT(pipe != NULL);
+			if(file->access & _SC_ACCESS_R)
+				pipe->refs_file_r--;
+			if(file->access & _SC_ACCESS_W)
+				pipe->refs_file_w--;
+			
+			pipe->refs_file--;
+			pipe_unlock(pipe);
+		}
+		
 		file->ino = 0;
 		file->off = 0;
 		file->mode = 0;

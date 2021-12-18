@@ -45,6 +45,7 @@ void process_init(void)
 	file_unlock(bin_file);
 	bin_file = NULL;
 	
+	init_file->access = 7;
 	pptr->fds[0].file = init_file;
 	file_unlock(init_file);
 	
