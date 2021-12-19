@@ -14,9 +14,79 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
+#include "d_log.h"
+#include "d_null.h"
+#include "d_nxio.h"
+#include "d_con.h"
+
 //All files currently open on the system.
 #define FILE_MAX 1024
 static file_t file_table[FILE_MAX];
+
+//Character devices supported
+typedef enum file_chrdev_major_e
+{
+	FILE_CHRDEV_MAJOR_NULL = 0,
+	FILE_CHRDEV_MAJOR_CON  = 1,
+	FILE_CHRDEV_MAJOR_LOG  = 2,
+	FILE_CHRDEV_MAJOR_NXIO = 3,
+	
+	FILE_CHRDEV_MAJOR_MAX
+} file_chrdev_major_t;
+
+//Character device switch
+typedef struct file_chrdev_s
+{
+	int     (*open) (int minor);
+	void    (*close)(int minor);
+	ssize_t (*read) (int minor, void *buf, ssize_t nbytes);
+	ssize_t (*write)(int minor, const void *buf, ssize_t nbytes);
+	int     (*ioctl)(int minor, int operation, void *buf, ssize_t len);
+} file_chrdev_t;
+static const file_chrdev_t file_chrdev_table[FILE_CHRDEV_MAJOR_MAX] = 
+{
+	[FILE_CHRDEV_MAJOR_NULL] =
+	{
+		.read = d_null_read,
+		.write = d_null_write,
+	},
+	[FILE_CHRDEV_MAJOR_CON] =
+	{
+		.open = d_con_open,
+		.close = d_con_close,
+		.ioctl = d_con_ioctl,
+	},
+	[FILE_CHRDEV_MAJOR_LOG] =
+	{
+		.write = d_log_write,
+	},
+	[FILE_CHRDEV_MAJOR_NXIO] = 
+	{
+		.open = d_nxio_open,
+		.close = d_nxio_close,
+		.read = d_nxio_read,
+		.write = d_nxio_write,
+		.ioctl = d_nxio_ioctl,
+	},
+};
+
+//Returns character-device functions for the given character-device number.
+//Returns functions that return -NXIO if invalid value is given.
+static const file_chrdev_t *file_chrdev_major(int special)
+{
+	int major = (special >> 16) & 0xFFFF;
+	if(major < 0 || major >= FILE_CHRDEV_MAJOR_MAX)
+		return &(file_chrdev_table[FILE_CHRDEV_MAJOR_NXIO]);
+	
+	return &(file_chrdev_table[major]);
+}
+
+//Returns the minor number associated with the given character-device number.
+static int file_chrdev_minor(int special)
+{
+	return special & 0xFFFF;
+}
+
 
 //Gets a free entry from the file table. Returns it with the lock held.
 static file_t *file_lockfree(void)
@@ -65,10 +135,7 @@ int file_make(file_t *dir, const char *name, mode_t mode, dev_t special, file_t 
 	//Make room for the new open file entry.
 	file_t *newfile = file_lockfree();
 	if(newfile == NULL)
-	{
-		//No room in file table.
 		return -ENFILE;
-	}
 	
 	//If this is a named pipe, it needs a pipe structure.
 	if(S_ISFIFO(mode))
@@ -112,12 +179,33 @@ int file_make(file_t *dir, const char *name, mode_t mode, dev_t special, file_t 
 	//Done with RAM FS at this point
 	ramfs_unlock();
 	
+	//If we're making a device node, make sure the device is OK with that. Close the file otherwise.
+	if(S_ISCHR(mode))
+	{
+		const file_chrdev_t *major = file_chrdev_major(special);
+		if(major->open != NULL)
+		{
+			int dev_err = (*(major->open))(file_chrdev_minor(special));
+			if(dev_err < 0)
+			{
+				//Device said "no"
+				ramfs_lock();
+				ramfs_dec(ino_made);
+				ramfs_unlock();
+				
+				newfile->ino = 0;
+				m_spl_rel(&(newfile->spl));
+				return dev_err;
+			}
+		}
+	}
+	
 	newfile->mode = mode;
 	newfile->special = special;
 	newfile->off = 0;
 	newfile->access = 0;
-	
 	newfile->refs = 1;
+	
 	*file_out = newfile;
 	return 0;
 }
@@ -167,7 +255,7 @@ int file_find(file_t *dir, const char *name, file_t **file_out)
 			}
 		}
 	}
-	
+		
 	//Alright, found the file. Add a reference and get its info.
 	newfile->ino = found_ino;
 	ramfs_inc(found_ino);
@@ -179,13 +267,34 @@ int file_find(file_t *dir, const char *name, file_t **file_out)
 	//Done with filesystem at this point - we hold reference to the file, it won't go away.
 	ramfs_unlock();
 	
+	//If we're opening a device, make sure the device is OK with that. Close the file otherwise.
+	if(S_ISCHR(st.st_mode))
+	{
+		const file_chrdev_t *major = file_chrdev_major(st.st_rdev);
+		if(major->open != NULL)
+		{
+			int dev_err = (*(major->open))(file_chrdev_minor(st.st_rdev));
+			if(dev_err < 0)
+			{
+				//Device said "no"
+				ramfs_lock();
+				ramfs_dec(found_ino);
+				ramfs_unlock();
+				
+				newfile->ino = 0;
+				m_spl_rel(&(newfile->spl));
+				return dev_err;
+			}
+		}
+	}
+	
 	newfile->mode = st.st_mode;
 	newfile->special = st.st_rdev;
 	newfile->off = 0;
 	newfile->access = 0;
+	newfile->refs = 1;
 	
 	//Return the new file with one reference, still locked.
-	newfile->refs = 1;
 	*file_out = newfile;
 	return 0;
 }
@@ -214,7 +323,13 @@ ssize_t file_read(file_t *file, void *buf, ssize_t nbytes)
 		return -EBADF;
 	
 	if(S_ISCHR(file->mode))
-		return -ENOSYS;
+	{
+		const file_chrdev_t *major = file_chrdev_major(file->special);
+		if(major->read == NULL)
+			return -ENOTTY;
+		
+		return (*(major->read))(file_chrdev_minor(file->special), buf, nbytes);
+	}
 	
 	ramfs_lock();
 	ssize_t retval = ramfs_read(file->ino, file->off, buf, nbytes);
@@ -233,7 +348,13 @@ ssize_t file_write(file_t *file, const void *buf, ssize_t nbytes)
 		return -EBADF;
 	
 	if(S_ISCHR(file->mode))
-		return -ENOSYS;
+	{
+		const file_chrdev_t *major = file_chrdev_major(file->special);
+		if(major->write == NULL)
+			return -ENOTTY;
+		
+		return (*(major->write))(file_chrdev_minor(file->special), buf, nbytes);
+	}
 	
 	if(S_ISDIR(file->mode))
 		return -EISDIR;
@@ -314,6 +435,18 @@ off_t file_seek(file_t *file, off_t offset, int whence)
 	return file->off;
 }
 
+int file_ioctl(file_t *file, int operation, void *buf, ssize_t len)
+{
+	if(!S_ISCHR(file->mode))
+		return -ENOTTY;
+	
+	const file_chrdev_t *major = file_chrdev_major(file->special);
+	if(major->ioctl == NULL)
+		return -ENOTTY;
+	
+	return (*(major->ioctl))(file_chrdev_minor(file->special), operation, buf, len);
+}
+
 void file_lock(file_t *file)
 {
 	m_spl_acq(&(file->spl));
@@ -326,6 +459,13 @@ void file_unlock(file_t *file)
 		ramfs_lock();
 		ramfs_dec(file->ino);
 		ramfs_unlock();
+		
+		if(S_ISCHR(file->mode))
+		{
+			const file_chrdev_t *major = file_chrdev_major(file->special);
+			if(major->close != NULL)
+				(*(major->close))(file_chrdev_minor(file->special));
+		}
 		
 		if(S_ISFIFO(file->mode))
 		{

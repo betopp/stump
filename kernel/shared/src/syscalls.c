@@ -253,6 +253,10 @@ intptr_t k_sc_exec(int fd, char *const argv[], char *const envp[])
 		goto cleanup;
 	}
 	
+	//Done with ELF now
+	file_unlock(elf_file);
+	elf_file = NULL;
+	
 	//Try to copy the arg/env buffer into the new memory space	
 	uintptr_t argenv_addr = 0;
 	int argenv_err = argenv_load(&(pptr->mem_attempt), argv, envp, &argenv_addr);
@@ -646,12 +650,13 @@ ssize_t k_sc_stat(int fd, _sc_stat_t *buf, ssize_t len)
 
 int k_sc_ioctl(int fd, int operation, void *buf, ssize_t len)
 {
-	(void)fd;
-	(void)operation;
-	(void)buf;
-	(void)len;
-	KASSERT(0);
-	return -ENOSYS;
+	file_t *fptr = process_lockfd(fd, false);
+	if(fptr == NULL)
+		return -EBADF;
+	
+	int result = file_ioctl(fptr, operation, buf, len);
+	file_unlock(fptr);
+	return result;
 }
 
 int64_t k_sc_sigmask(int how, int64_t mask)
@@ -704,19 +709,29 @@ int k_sc_rusage(int who, _sc_rusage_t *buf, ssize_t len)
 
 intptr_t k_sc_mem_avail(intptr_t around, ssize_t size)
 {
-	(void)around;
-	(void)size;
-	KASSERT(0);
-	return -ENOSYS;
+	process_t *pptr = process_lockcur();
+	intptr_t retval = mem_avail(&(pptr->mem), around, size);
+	process_unlock(pptr);
+	return retval;
 }
 
 int k_sc_mem_anon(uintptr_t addr, ssize_t size, int access)
 {
-	(void)addr;
-	(void)size;
-	(void)access;
-	KASSERT(0);
-	return -ENOSYS;
+	process_t *pptr = process_lockcur();
+	
+	int retval = mem_add(&(pptr->mem), addr, size, access);
+	if(retval >= 0)
+	{
+		size_t pagesize = m_frame_size();
+		size_t clear_size = size;
+		if(clear_size % pagesize)
+			clear_size += pagesize - (clear_size % pagesize);
+		
+		memset((void*)addr, 0, clear_size);
+	}
+	
+	process_unlock(pptr);
+	return retval;
 }
 
 int k_sc_mem_free(uintptr_t addr, ssize_t size)

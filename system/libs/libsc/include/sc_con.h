@@ -4,6 +4,9 @@
 #ifndef _SC_CON_H
 #define _SC_CON_H
 
+#include <stdint.h>
+#include <sys/types.h>
+
 //The console device represents the machine's framebuffer, keyboard, and mouse.
 
 //ioctl commands that the console supports

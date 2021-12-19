@@ -50,6 +50,9 @@ int file_stat(file_t *file, struct stat *st);
 //Changes the file-pointer in the given open file, altering where the next read or write occurs.
 off_t file_seek(file_t *file, off_t offset, int whence);
 
+//Interface to device-specific functions on device specials
+int file_ioctl(file_t *file, int operation, void *buf, ssize_t len);
+
 //Acquires the lock on the given file.
 void file_lock(file_t *file);
 

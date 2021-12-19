@@ -114,6 +114,8 @@ uintptr_t m_frame_alloc(void)
 	//The page to which the old head refers, is now the head.
 	m_frame_head = pspace_read(m_frame_head);
 	
+	m_frame_count--;
+	
 	m_spl_rel(&m_frame_spl);
 	return retval;
 }

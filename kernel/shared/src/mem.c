@@ -50,8 +50,9 @@ int mem_add(mem_t *mem, uintptr_t vaddr, size_t size, int prot)
 	size_t pagesize = m_frame_size();
 	if(vaddr % pagesize != 0)
 		return -EINVAL;
+	
 	if(size % pagesize != 0)
-		return -EINVAL;
+		size += pagesize - (size % pagesize);
 	
 	//Find place to store the segment
 	mem_seg_t *sptr = NULL;
@@ -209,35 +210,34 @@ intptr_t mem_avail(mem_t *mptr, uintptr_t around, size_t size)
 		uintptr_t gap_end = ( (gg == MEM_SEG_MAX) || (mptr->segs[gg].size == 0) ) ? uspc_end : (mptr->segs[gg].vaddr);
 		
 		//Check if the gap is big enough for the proposed region at all
-		if(gap_end - gap_start < size)
-			continue; //Not enough room
+		if(gap_end - gap_start >= size)
+		{
+			//See what placement would be closest to the proposed address
+			uintptr_t best_start_in_gap = 0;
+			if(around < gap_start)
+			{
+				//Wanted an address before the gap - closest we'll get is the beginning
+				best_start_in_gap = gap_start;
+			}
+			else if(around > gap_end - size)
+			{
+				//Wanted a range that ends after the gap - closest we'll get is the end
+				best_start_in_gap = gap_end - size;
+			}
+			else
+			{
+				//Can satisfy exactly the request in this gap
+				best_start_in_gap = around;
+			}
+			
+			uintptr_t diff = (best_start_in_gap > around) ? (best_start_in_gap - around) : (around - best_start_in_gap);
+			if(diff < best_diff)
+			{
+				best_start = best_start_in_gap;
+				best_diff = diff;
+			}
+		}
 		
-		//See what placement would be closest to the proposed address
-		uintptr_t best_start_in_gap = 0;
-		if(around < gap_start)
-		{
-			//Wanted an address before the gap - closest we'll get is the beginning
-			best_start_in_gap = gap_start;
-		}
-		else if(around > gap_end - size)
-		{
-			//Wanted a range that ends after the gap - closest we'll get is the end
-			best_start_in_gap = gap_end - size;
-		}
-		else
-		{
-			//Can satisfy exactly the request in this gap
-			best_start_in_gap = around;
-		}
-		
-		uintptr_t diff = (best_start_in_gap > around) ? (best_start_in_gap - around) : (around - best_start_in_gap);
-		if(diff < best_diff)
-		{
-			best_start = best_start_in_gap;
-			best_diff = diff;
-		}
-		
-		//If there's no more memory segments, there's no more gaps
 		if(mptr->segs[gg].size == 0)
 			break;
 	}
