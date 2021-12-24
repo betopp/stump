@@ -5,6 +5,7 @@
 #include "syscalls.h"
 #include "kassert.h"
 #include "argenv.h"
+#include "kpage.h"
 #include "m_panic.h"
 #include "m_frame.h"
 #include "process.h"
@@ -904,6 +905,136 @@ void k_sc_pause(void)
 	tptr->state = THREAD_STATE_WAIT;
 	thread_unlock(tptr);
 	return;
+}
+
+int k_sc_con_init(const _sc_con_init_t *buf_ptr, ssize_t buf_len)
+{
+	//Copy parameters from user
+	_sc_con_init_t parms = {0};
+	if(buf_len > (ssize_t)sizeof(parms))
+		buf_len = sizeof(parms);
+	
+	int parm_err = process_memget(&parms, buf_ptr, buf_len);
+	if(parm_err < 0)
+		return parm_err;
+	
+	//Validate framebuffer
+	if(parms.fb_width < 1 || parms.fb_width > 4096)
+		return -EINVAL;
+	if(parms.fb_height < 1 || parms.fb_height > 4096)
+		return -EINVAL;
+	if(parms.fb_stride < (size_t)parms.fb_width || parms.fb_stride > 1048576)
+		return -EINVAL;
+	if(parms.flags != 0)
+		return -EINVAL;
+	
+	//Try to allocate a kernel buffer for the console framebuffer
+	size_t fblen = parms.fb_height * parms.fb_stride;
+	void *fbptr = kpage_alloc(fblen);
+	if(fbptr == NULL)
+		return -ENOMEM;
+	
+	//Put it in the current process, freeing any old buffer
+	process_t *pptr = process_lockcur();
+	if(pptr->fb.bufptr != NULL)
+		kpage_free(pptr->fb.bufptr, pptr->fb.buflen);
+	
+	pptr->fb.bufptr = fbptr;
+	pptr->fb.buflen = fblen;
+	pptr->fb.width = parms.fb_width;
+	pptr->fb.height = parms.fb_height;
+	pptr->fb.stride = parms.fb_stride;
+	
+	process_unlock(pptr);
+	pptr = NULL;
+	
+	//Success
+	return 0;
+}
+
+int k_sc_con_flip(const void *fb_ptr, int flags)
+{
+	//Flags eventually will indicate scaling/vsync behavior and stuff
+	if(flags != 0)
+		return -EINVAL;
+	
+	//Copy into the kernel-side backbuffer for this process.
+	process_t *pptr = process_lockcur();
+	if(pptr->fb.bufptr == NULL)
+	{
+		//This process hasn't set up their console
+		process_unlock(pptr);
+		return -ENXIO;
+	}
+	
+	int mem_err = process_memget(pptr->fb.bufptr, fb_ptr, pptr->fb.buflen);
+	if(mem_err < 0)
+	{
+		//Failed to copy the user's image into our kernel-side buffer.
+		process_unlock(pptr);
+		return mem_err;
+	}
+	
+	//If this process holds the console, immediately display the image
+	//Todo - eh probly triple buffer or something
+	if(pptr->hascon)
+		fb_paint(&(pptr->fb));
+	
+	process_unlock(pptr);
+	return 0;
+}
+
+ssize_t k_sc_con_input(_sc_con_input_t *buf_ptr, ssize_t each_bytes, ssize_t buf_bytes)
+{
+	//Todo - can version this based on length of input event structure
+	if(each_bytes != sizeof(_sc_con_input_t))
+		return -EINVAL;
+	
+	process_t *pptr = process_lockcur();
+	if(!pptr->hascon)
+	{
+		//Process doesn't have the console. Return no input.
+		process_unlock(pptr);
+		return 0;
+	}
+	
+	//Todo
+	(void)buf_ptr;
+	(void)each_bytes;
+	(void)buf_bytes;
+	return 0;
+}
+
+int k_sc_con_pass(pid_t next)
+{
+	process_t *pptr = process_lockcur();	
+	if(!pptr->hascon)
+	{
+		//Don't have the console right now, can't pass it
+		process_unlock(pptr);
+		return -EBUSY;
+	}
+	
+	if(pptr->pid == next)
+	{
+		//Passing to ourself...?
+		process_unlock(pptr);
+		return 0;
+	}
+		
+	process_t *newpptr = process_lockpid(next);
+	if(newpptr == NULL)
+	{
+		//No such target
+		process_unlock(pptr);
+		return -ESRCH;
+	}
+	
+	pptr->hascon = false;
+	newpptr->hascon = true;
+	process_unlock(pptr);
+	process_unlock(newpptr);
+	return 0;
 }
 
 

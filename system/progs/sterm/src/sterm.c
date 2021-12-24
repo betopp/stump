@@ -14,6 +14,16 @@
 
 #include "confont.h"
 
+//Todo - determine this dynamically
+#define FB_WIDTH 640
+#define FB_HEIGHT 480
+
+//Backbuffer as allocated
+uint32_t *fb_ptr;
+int fb_width;
+int fb_height;
+size_t fb_stride;
+
 //File descriptor for console device we're running on
 int fd_con;
 
@@ -24,12 +34,6 @@ int fd_fromshell_w;
 //Input pipe to get text output from shell
 int fd_toshell_r;
 int fd_toshell_w;
-
-//Framebuffer used to output console display
-uint32_t *fb_ptr;
-int       fb_width;
-int       fb_height;
-size_t    fb_stride;
 
 //Text buffer holding console output, to be scrolled along
 char *txt_buf; //Storage for text on screen / scrollback
@@ -318,20 +322,10 @@ void kbd(_sc_con_scancode_t scancode, bool press)
 
 int main(int argc, const char **argv, const char **envp)
 {
-	//Need console device specified on command line
-	if(argc < 2)
-	{
-		printf("%s <console device>\n", argv[0]);
-		return -1;
-	}
-	
-	//Open the console device we'll be running
-	fd_con = open(argv[1], O_RDWR);
-	if(fd_con < 0)
-	{
-		perror("open device");
-		abort();
-	}
+	//Ignore these for now
+	(void)argc;
+	(void)argv;
+	(void)envp;
 	
 	//Make pipes that will go to/from the shell
 	int toshell_fds[2];
@@ -354,19 +348,10 @@ int main(int argc, const char **argv, const char **envp)
 	fd_fromshell_r = fromshell_fds[0];
 	fd_fromshell_w = fromshell_fds[1];
 	
-	//Figure out framebuffer dimensions and allocate enough memory to back it
-	_sc_con_fbgeom_t fbgeom;
-	ssize_t fbgeom_result = _sc_ioctl(fd_con, _SC_CON_IOCTL_FBGEOM, &fbgeom, sizeof(fbgeom));
-	if(fbgeom_result < 0)
-	{
-		errno = -fbgeom_result;
-		perror("ioctl fbgeom");
-		abort();
-	}
-	
-	fb_width = fbgeom.width;
-	fb_height = fbgeom.height;
-	fb_stride = fbgeom.stride;
+	//Figure out framebuffer dimensions and allocate enough memory to back it	
+	fb_width = FB_WIDTH;
+	fb_height = FB_HEIGHT;
+	fb_stride = FB_WIDTH*4;
 	fb_ptr = malloc(fb_height * fb_stride);
 	if(fb_ptr == NULL)
 	{
@@ -374,6 +359,23 @@ int main(int argc, const char **argv, const char **envp)
 		abort();
 	}
 	memset(fb_ptr, 0, fb_height * fb_stride);
+	
+	//Tell kernel we'll be using our console output
+	const _sc_con_init_t con_parms = 
+	{
+		.flags = 0,
+		.fb_width = fb_width,
+		.fb_height = fb_height,
+		.fb_stride = fb_stride,
+	};
+
+	int con_err = _sc_con_init(&con_parms, sizeof(con_parms));
+	if(con_err < 0)
+	{
+		errno = -con_err;
+		perror("_sc_con_init");
+		abort();
+	}
 	
 	//Allocate text buffers based on screen and glyph size
 	win_cols = fb_width / confont_chx;
@@ -442,7 +444,7 @@ int main(int argc, const char **argv, const char **envp)
 		while(1)
 		{
 			_sc_con_input_t from_con_buf[16];
-			ssize_t from_con_len = read(fd_con, from_con_buf, sizeof(from_con_buf));
+			ssize_t from_con_len = _sc_con_input(from_con_buf, sizeof(from_con_buf[0]), sizeof(from_con_buf));
 			if(from_con_len <= 0)
 				break;
 			
@@ -476,13 +478,15 @@ int main(int argc, const char **argv, const char **envp)
 		}
 
 		//Update the framebuffer as drawn
-		_sc_con_paint_t paint = { .usrc = fb_ptr, .ustride = fb_stride, .x = 0, .y = 0, .w = fb_width, .h = fb_height };
-		ssize_t paint_result = _sc_ioctl(fd_con, _SC_CON_IOCTL_PAINT, &paint, sizeof(paint));
-		if(paint_result < 0)
+		int flip_result = _sc_con_flip(fb_ptr, 0);
+		if(flip_result < 0)
 		{
-			errno = -paint_result;
-			perror("ioctl paint");
+			errno = -flip_result;
+			perror("ioctl flip");
 			abort();
 		}
+		
+		//Wait if nothing happened
+		_sc_pause();
 	}
 }

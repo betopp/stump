@@ -8,6 +8,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include <sc_con.h>
+#include <sc_mem.h>
+
 //Does nothing.
 void _sc_none(void);
 
@@ -176,15 +179,6 @@ typedef struct _sc_rusage_s
 
 //Returns resource usage information for the given process.
 int _sc_rusage(int who, _sc_rusage_t *buf, ssize_t len);
-
-//Returns an address where the calling process has empty address space of the given size.
-intptr_t _sc_mem_avail(intptr_t around, ssize_t size);
-
-//Adds new, private, zeroed memory to the calling process's memory space.
-int _sc_mem_anon(uintptr_t addr, ssize_t size, int access);
-
-//Removes memory from the calling process's memory space.
-int _sc_mem_free(uintptr_t addr, ssize_t size);
 
 //Information returned by kernel on return from wait.
 typedef struct _sc_wait_s

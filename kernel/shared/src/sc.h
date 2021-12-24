@@ -1,1 +1,0 @@
-../../../system/libs/libsc/include/sc.h

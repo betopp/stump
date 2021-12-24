@@ -1,5 +1,5 @@
 //sc_con.h
-//System call library - console device definitions
+//System call library - console functions
 //Bryan E. Topp <betopp@betopp.com> 2021
 #ifndef _SC_CON_H
 #define _SC_CON_H
@@ -7,57 +7,37 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-//The console device represents the machine's framebuffer, keyboard, and mouse.
-
-//ioctl commands that the console supports
-#define _SC_CON_IOCTL_FBGEOM 0x14292001 //Gets framebuffer geometry
-#define _SC_CON_IOCTL_PAINT  0x14292002 //Copies memory to the framebuffer
-
-//Framebuffer geometry returned by console device
-typedef struct _sc_con_fbgeom_s
+//Console initialization info
+typedef struct _sc_con_init_s
 {
-	int width; //Width of screen, in pixels
-	int height; //Height of screen, in pixels
-	size_t stride; //Difference in address from one line to the next, in bytes
+	//Console flags (unused for now)
+	int    flags;
 	
-} _sc_con_fbgeom_t;
+	//Framebuffer config
+	int    fb_width;
+	int    fb_height;
+	size_t fb_stride;
+	
+} _sc_con_init_t;
 
-//Parameters to copy user memory to framebuffer
-typedef struct _sc_con_paint_s
+//Initializes console usage for the calling process.
+//Flags is currently unused. Returns 0 on success or a negative error number.
+int _sc_con_init(const _sc_con_init_t *buf_ptr, ssize_t buf_len);
+
+//Presents the user's framebuffer to the console.
+//The geometry of the buffer is configured when calling _sc_con_init.
+//Returns 0 on success or a negative error number.
+int _sc_con_flip(const void *fb_ptr, int flags);
+
+//Mouse buttons that the kernel reports from its console.
+typedef enum _sc_con_mbutton_e
 {
-	const void *usrc; //Location in user memory to copy from
-	size_t ustride; //Line-to-line difference in user memory, in bytes
-	int x, y, w, h; //Pixel location to copy
-	
-} _sc_con_paint_t;
+	_SC_CON_MBUTTON_LEFT   = 1,
+	_SC_CON_MBUTTON_RIGHT  = 2,
+	_SC_CON_MBUTTON_MIDDLE = 4,
+} _sc_con_mbutton_t;
 
-//Event returned by reading the console device
-#define _SC_CON_INPUT_TYPE_KBD 1
-#define _SC_CON_INPUT_TYPE_MOUSE 2
-typedef union _sc_con_input_u
-{
-	struct {
-		uint32_t scancode : 16;
-		uint32_t state : 8;
-		uint32_t unused : 4;
-		uint32_t type : 4;
-	} kbd;
-	
-	struct {
-		uint32_t dx : 10;
-		uint32_t dy : 10;
-		uint32_t buttons : 8;
-		uint32_t type : 4;
-	} mouse;
-	
-	struct {
-		uint32_t unused : 28;
-		uint32_t type : 4;
-	} type;
-	
-} _sc_con_input_t;
-
-//Scancodes that the kernel reports from its console device.
+//Scancodes that the kernel reports from its console.
 typedef enum _sc_con_scancode_e
 {
 	_SC_CON_SCANCODE_UNKNOWN = 0,
@@ -304,5 +284,45 @@ typedef enum _sc_con_scancode_e
 	
 	_SC_CON_SCANCODE_MAX = 512,
 } _sc_con_scancode_t;
+
+//Type of input event that the console reports
+typedef enum _sc_con_input_type_e
+{
+	_SC_CON_INPUT_TYPE_NONE  = 0,
+	_SC_CON_INPUT_TYPE_KBD   = 1,
+	_SC_CON_INPUT_TYPE_MOUSE = 2,
+	
+} _sc_con_input_type_t;
+
+//Data about an input event from the console
+typedef union _sc_con_input_u
+{
+	struct {
+		_sc_con_scancode_t scancode : 16;
+		uint32_t state              : 8;
+		uint32_t unused             : 4;
+		uint32_t type               : 4;
+	} kbd;
+	
+	struct {
+		int dx                    : 10;
+		int dy                    : 10;
+		_sc_con_mbutton_t buttons : 8;
+		uint32_t type             : 4;
+	} mouse;
+	
+	struct {
+		uint32_t nottype : 28;
+		uint32_t type    : 4;
+	} type;
+	
+} _sc_con_input_t;
+
+//Looks for console input. Outputs as many events as are waiting and would fit in the buffer.
+//Returns the size, in bytes, of the data returned. buf_len and the return value are in bytes.
+ssize_t _sc_con_input(_sc_con_input_t *buf_ptr, ssize_t each_bytes, ssize_t buf_bytes);
+
+//Hands-off the console if this process has it currently.
+int _sc_con_pass(pid_t next);
 
 #endif //_SC_CON_H

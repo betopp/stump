@@ -8,6 +8,7 @@
 #include "m_uspc.h"
 #include "file.h"
 #include "mem.h"
+#include "fb.h"
 #include <sys/types.h>
 #include <stdint.h>
 
@@ -70,6 +71,12 @@ typedef struct process_s
 	
 	//Status information available for parent to wait() on
 	int wstatus;
+	
+	//Console backbuffer in kernel-space
+	fb_back_t fb;
+	
+	//Whether this process is active on the console
+	bool hascon;
 	
 } process_t;
 

@@ -7,7 +7,7 @@
 #include "m_spl.h"
 #include "kassert.h"
 #include "pipe.h"
-#include "sc.h"
+#include "sc/sc.h"
 #include <errno.h>
 #include <stddef.h>
 #include <string.h>
@@ -17,7 +17,6 @@
 #include "d_log.h"
 #include "d_null.h"
 #include "d_nxio.h"
-#include "d_con.h"
 
 //All files currently open on the system.
 #define FILE_MAX 1024
@@ -27,7 +26,6 @@ static file_t file_table[FILE_MAX];
 typedef enum file_chrdev_major_e
 {
 	FILE_CHRDEV_MAJOR_NULL = 0,
-	FILE_CHRDEV_MAJOR_CON  = 1,
 	FILE_CHRDEV_MAJOR_LOG  = 2,
 	FILE_CHRDEV_MAJOR_NXIO = 3,
 	
@@ -49,12 +47,6 @@ static const file_chrdev_t file_chrdev_table[FILE_CHRDEV_MAJOR_MAX] =
 	{
 		.read = d_null_read,
 		.write = d_null_write,
-	},
-	[FILE_CHRDEV_MAJOR_CON] =
-	{
-		.open = d_con_open,
-		.close = d_con_close,
-		.ioctl = d_con_ioctl,
 	},
 	[FILE_CHRDEV_MAJOR_LOG] =
 	{

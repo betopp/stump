@@ -4,7 +4,7 @@
 #ifndef SYSCALLS_H
 #define SYSCALLS_H
 
-#include "sc.h"
+#include <sc.h>
 
 //Handles a system-call based on call number.
 uintptr_t syscalls_handle(uintptr_t num, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4, uintptr_t p5);

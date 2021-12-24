@@ -7,16 +7,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/wait.h>
-
-//Number of terminals we spawn
-#define TERM_MAX 1
-pid_t term_pids[TERM_MAX];
+#include <sc.h>
 
 int main(int argc, const char **argv, const char **envp)
 {
 	//Todo - could use this to pass the kernel commandline or something
 	(void)argc;
 	(void)argv;
+	(void)envp;
 	
 	//Open the kernel logging device as our stdout/stderr.
 	int log_fd = open("/dev/log", O_WRONLY);
@@ -53,21 +51,14 @@ int main(int argc, const char **argv, const char **envp)
 		abort();
 	}
 	
-	//Keep terminal emulators spawned
+	//Keep terminal emulator spawned and active on the console
+	pid_t term_pid = 0;
 	while(1)
 	{
-		//Spawn any that don't exist.
-		for(int tt = 0; tt < TERM_MAX; tt++)
+		//If we don't have a terminal emulator, spawn one
+		if(term_pid == 0)
 		{
-			if(term_pids[tt] != 0)
-				continue; //Already spawned this one
-			
-			//Name of console device that the terminal emulator will attach to
-			char con_name[16] = {0};
-			snprintf(con_name, sizeof(con_name) - 1, "/dev/con%d", tt);
-			
 			pid_t forkpid = fork();
-			
 			if(forkpid < 0)
 			{
 				//Failed to fork
@@ -78,19 +69,21 @@ int main(int argc, const char **argv, const char **envp)
 			if(forkpid == 0)
 			{
 				//Child - execute terminal emulator
-				int exec_err = fexecve(term_fd, (char*[]){"sterm", con_name, NULL}, (char**)envp);
+				int exec_err = fexecve(term_fd, (char*[]){"sterm", NULL}, (char**)envp);
 				(void)exec_err; //Must be error if fexecve returns.
 				_Exit(-1);
 			}
 			
-			//Note the process ID of the child for this terminal emulator.
-			term_pids[tt] = forkpid;
+			term_pid = forkpid;
 		}
 		
-		//Wait for any child processes that have status.
-		//If one of those is a terminal emulator exiting, note that.
+		//If we've got the console, hand it to the terminal emulator.
+		//(Note that we might get it back later, and have to pass it again.)
+		_sc_con_pass(term_pid);
+	
+		//Check for child status updates. If one of those is the terminal emulator exiting, note that it's gone.
 		int wait_status = 0;
-		pid_t wait_pid = wait(&wait_status);
+		pid_t wait_pid = waitpid(0, &wait_status, WNOHANG);
 		if(wait_pid < 0)
 		{
 			perror("wait");
@@ -99,11 +92,11 @@ int main(int argc, const char **argv, const char **envp)
 		
 		if(WIFEXITED(wait_status) || WIFSIGNALED(wait_status))
 		{
-			for(int tt = 0; tt < TERM_MAX; tt++)
-			{
-				if(wait_pid == term_pids[tt])
-					term_pids[tt] = 0;
-			}
+			if(wait_pid == term_pid)
+				term_pid = 0;
 		}
+		
+		//Don't just spin if nothing is happening.
+		_sc_pause();
 	}
 }

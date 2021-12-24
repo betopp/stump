@@ -23,6 +23,7 @@ void process_init(void)
 	
 	pptr->pid = 1;
 	pptr->state = PROCESS_STATE_ALIVE;
+	pptr->hascon = true;
 	
 	//Open the init executable, and put a reference in our process's FD 0
 	file_t *root_file = NULL;
@@ -186,6 +187,13 @@ int process_memput(void *ubufptr, const void *kbufptr, size_t len)
 {
 	//Todo - validate buffer
 	memcpy(ubufptr, kbufptr, len);
+	return 0;
+}
+
+int process_memget(void *kbufptr, const void *ubufptr, size_t len)
+{
+	//Todo - validate buffer
+	memcpy(kbufptr, ubufptr, len);
 	return 0;
 }
 
