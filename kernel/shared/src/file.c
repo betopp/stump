@@ -121,6 +121,7 @@ int file_make(file_t *dir, const char *name, mode_t mode, dev_t special, file_t 
 	if((!strcmp(name, ".")) || (!strcmp(name, "..")))
 		return -EINVAL;
 	
+	//Don't support 0-modes or block devices or anything stupid
 	if(!(S_ISDIR(mode) || S_ISCHR(mode) || S_ISREG(mode) || S_ISLNK(mode) || S_ISFIFO(mode)))
 		return -EINVAL;
 	
@@ -129,36 +130,13 @@ int file_make(file_t *dir, const char *name, mode_t mode, dev_t special, file_t 
 	if(newfile == NULL)
 		return -ENFILE;
 	
-	//If this is a named pipe, it needs a pipe structure.
-	if(S_ISFIFO(mode))
-	{
-		pipe_t *pipe = NULL;
-		int pipe_err = pipe_new(&pipe);
-		if(pipe_err < 0)
-		{
-			//Failed to make pipe
-			file_unlock(newfile);
-			return pipe_err;
-		}
-		special = pipe->id;
-		pipe->refs_file++;
-		pipe_unlock(pipe);
-	}
-		
+
 	//Try to make the inode in the filesystem
 	ramfs_lock();
 	ino_t ino_made = 0;
 	int make_err = ramfs_make(dir->ino, name, mode, special, &ino_made);
 	if(make_err < 0)
-	{
-		if(S_ISFIFO(mode))
-		{
-			pipe_t *pipe = pipe_lockid(special);
-			KASSERT(pipe != NULL);
-			pipe->refs_file = 0;
-			pipe_unlock(pipe);
-		}
-		
+	{		
 		ramfs_unlock();
 		m_spl_rel(&(newfile->spl));
 		return make_err;
@@ -167,6 +145,11 @@ int file_make(file_t *dir, const char *name, mode_t mode, dev_t special, file_t 
 	//Made the inode - store reference to it.
 	newfile->ino = ino_made;
 	ramfs_inc(ino_made);
+	
+	//Get status about the file we just made. NEEDED TO FIND OUT ID OF A NEW PIPE.
+	struct stat st;
+	int stat_err = ramfs_stat(ino_made, &st);
+	KASSERT(stat_err == 0);
 	
 	//Done with RAM FS at this point
 	ramfs_unlock();
@@ -192,8 +175,8 @@ int file_make(file_t *dir, const char *name, mode_t mode, dev_t special, file_t 
 		}
 	}
 	
-	newfile->mode = mode;
-	newfile->special = special;
+	newfile->mode = st.st_mode;
+	newfile->special = st.st_rdev; //NOTE - MIGHT NOT BE THE SPECIAL WE PICKED. PIPES GET THEIR ID BACK FROM RAMFS.
 	newfile->off = 0;
 	newfile->access = 0;
 	newfile->refs = 1;
@@ -233,6 +216,11 @@ int file_find(file_t *dir, const char *name, file_t **file_out)
 		if(name == NULL || name[0] == '\0')
 		{
 			//Looking for empty-string. Return another reference to the given file, even if it's not a dir.
+			found_ino = dir->ino;
+		}
+		else if(S_ISFIFO(dir->mode) && name[0] == '~' && name[1] == '\0')
+		{
+			//Trying to look up the reverse of a pipe.
 			found_ino = dir->ino;
 		}
 		else
@@ -286,6 +274,10 @@ int file_find(file_t *dir, const char *name, file_t **file_out)
 	newfile->access = 0;
 	newfile->refs = 1;
 	
+	//If we're opening the reverse of a pipe, reverse the pipe reference.
+	if((name[0] == '~') && S_ISFIFO(dir->mode))
+		newfile->special *= -1;
+	
 	//Return the new file with one reference, still locked.
 	*file_out = newfile;
 	return 0;
@@ -323,6 +315,18 @@ ssize_t file_read(file_t *file, void *buf, ssize_t nbytes)
 		return (*(major->read))(file_chrdev_minor(file->special), buf, nbytes);
 	}
 	
+	if(S_ISFIFO(file->mode))
+	{
+		int pipe_id = (file->special > 0) ? file->special : -file->special;
+		pipe_dir_t pipe_dir = (file->special > 0) ? PIPE_DIR_FORWARD : PIPE_DIR_REVERSE;
+		
+		pipe_t *pipe = pipe_lockid(pipe_id);
+		KASSERT(pipe != NULL);
+		ssize_t piperet = pipe_read(pipe, pipe_dir, buf, nbytes);
+		pipe_unlock(pipe);
+		return piperet;
+	}
+	
 	ramfs_lock();
 	ssize_t retval = ramfs_read(file->ino, file->off, buf, nbytes);
 	ramfs_unlock();
@@ -348,6 +352,18 @@ ssize_t file_write(file_t *file, const void *buf, ssize_t nbytes)
 		return (*(major->write))(file_chrdev_minor(file->special), buf, nbytes);
 	}
 	
+	if(S_ISFIFO(file->mode))
+	{
+		int pipe_id = (file->special > 0) ? file->special : -file->special;
+		pipe_dir_t pipe_dir = (file->special > 0) ? PIPE_DIR_FORWARD : PIPE_DIR_REVERSE;
+		
+		pipe_t *pipe = pipe_lockid(pipe_id);
+		KASSERT(pipe != NULL);
+		ssize_t piperet = pipe_write(pipe, pipe_dir, buf, nbytes);
+		pipe_unlock(pipe);
+		return piperet;
+	}
+	
 	if(S_ISDIR(file->mode))
 		return -EISDIR;
 	
@@ -370,6 +386,9 @@ int file_trunc(file_t *file, off_t size)
 	if(S_ISDIR(file->mode))
 		return -EISDIR;
 	
+	if(S_ISFIFO(file->mode))
+		return -ESPIPE;
+	
 	if(S_ISCHR(file->mode))
 		return -ENOTTY;
 	
@@ -390,6 +409,9 @@ int file_stat(file_t *file, struct stat *st)
 
 off_t file_seek(file_t *file, off_t offset, int whence)
 {
+	if(S_ISFIFO(file->mode))
+		return -ESPIPE;
+	
 	off_t whence_val = 0;
 	switch(whence)
 	{
@@ -429,14 +451,27 @@ off_t file_seek(file_t *file, off_t offset, int whence)
 
 int file_ioctl(file_t *file, int operation, void *buf, ssize_t len)
 {
-	if(!S_ISCHR(file->mode))
-		return -ENOTTY;
+	if(S_ISFIFO(file->mode))
+	{
+		int pipe_id = (file->special > 0) ? file->special : -file->special;
+		pipe_dir_t pipe_dir = (file->special > 0) ? PIPE_DIR_FORWARD : PIPE_DIR_REVERSE;
+		
+		pipe_t *pipe = pipe_lockid(pipe_id);
+		int result = pipe_ioctl(pipe, pipe_dir, operation, buf, len);
+		pipe_unlock(pipe);
+		return result;
+	}
 	
-	const file_chrdev_t *major = file_chrdev_major(file->special);
-	if(major->ioctl == NULL)
-		return -ENOTTY;
+	if(S_ISCHR(file->mode))
+	{
+		const file_chrdev_t *major = file_chrdev_major(file->special);
+		if(major->ioctl == NULL)
+			return -ENOTTY;
+		
+		return (*(major->ioctl))(file_chrdev_minor(file->special), operation, buf, len);
+	}
 	
-	return (*(major->ioctl))(file_chrdev_minor(file->special), operation, buf, len);
+	return -ENOTTY;
 }
 
 void file_lock(file_t *file)
@@ -448,10 +483,6 @@ void file_unlock(file_t *file)
 {
 	if(file->refs == 0)
 	{
-		ramfs_lock();
-		ramfs_dec(file->ino);
-		ramfs_unlock();
-		
 		if(S_ISCHR(file->mode))
 		{
 			const file_chrdev_t *major = file_chrdev_major(file->special);
@@ -461,16 +492,23 @@ void file_unlock(file_t *file)
 		
 		if(S_ISFIFO(file->mode))
 		{
-			pipe_t *pipe = pipe_lockid(file->special);
+			int pipe_id = (file->special > 0) ? file->special : -file->special;
+			pipe_dir_t pipe_dir = (file->special > 0) ? PIPE_DIR_FORWARD : PIPE_DIR_REVERSE;
+			
+			pipe_t *pipe = pipe_lockid(pipe_id);
+			
 			KASSERT(pipe != NULL);
 			if(file->access & _SC_ACCESS_R)
-				pipe->refs_file_r--;
+				pipe->dirs[pipe_dir].refs_r--;
 			if(file->access & _SC_ACCESS_W)
-				pipe->refs_file_w--;
+				pipe->dirs[pipe_dir].refs_w--;
 			
-			pipe->refs_file--;
 			pipe_unlock(pipe);
 		}
+		
+		ramfs_lock();
+		ramfs_dec(file->ino); //Also deletes the pipe as the ino is being cleaned up - verifies no readers/writers
+		ramfs_unlock();
 		
 		file->ino = 0;
 		file->off = 0;

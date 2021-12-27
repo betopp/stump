@@ -42,32 +42,37 @@ uintptr_t entry_syscall(uintptr_t num, uintptr_t p1, uintptr_t p2, uintptr_t p3,
 	//Save context in thread that was running
 	thread_t *tptr = thread_lockcur();
 	m_drop_copy(&(tptr->drop), drop);
+	//Todo - do we move the thread to a different state? state_kernel or something?
 	thread_unlock(tptr);
 	
 	//Run the requested system call
 	uintptr_t result = syscalls_handle(num, p1, p2, p3, p4, p5);
 	
 	//Handle the result in the calling thread...
-	tptr = thread_lockcur();
-	
-	m_drop_retval(&(tptr->drop), result);
-	
-	//If it resulted in this thread blocking, pick a different one to run
-	if(tptr->state == THREAD_STATE_WAIT)
+	tptr = thread_lockcur();	
+	if(tptr->state == THREAD_STATE_DEAD)
 	{
+		//Thread is dead - clean it up
+		while(1) { }
+	}
+	else if(tptr->unpauses < tptr->unpauses_req)
+	{
+		//Thread has consumed all existing unpauses (i.e. it paused).
+		//Schedule something else until it is next unpaused.
+		tptr->state = THREAD_STATE_SUSPEND;
 		thread_unlock(tptr);
+		
 		thread_sched();
 		m_panic("thread_sched returned");
 	}
-	
-	if(tptr->state == THREAD_STATE_DEAD)
+	else
 	{
-		//Handle thread death
-		while(1) { }
+		//If the calling thread hasn't paused, just continue running it.
+		//We could actually make a scheduling decision here, too... todo?
+		tptr->state = THREAD_STATE_RUN;
+		thread_unlock(tptr);
+		
+		m_drop_retval(&(tptr->drop), result);
+		m_drop(&(tptr->drop));
 	}
-
-	//Otherwise, continue with the caller
-	tptr->state = THREAD_STATE_RUN;
-	thread_unlock(tptr);
-	m_drop(&(tptr->drop));
 }

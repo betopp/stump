@@ -129,11 +129,8 @@ ssize_t _sc_stat(int fd, _sc_stat_t *buf, ssize_t len);
 //Performs device-specific IO operations on a file descriptor.
 int _sc_ioctl(int fd, int operation, void *buf, ssize_t len);
 
-//Alters the signal mask of the calling process. Returns the new mask.
+//Alters the signal mask of the calling process. Returns the old mask.
 int64_t _sc_sigmask(int how, int64_t mask);
-
-//Sleeps, atomically temporarily changing the signal mask when going to sleep.
-int _sc_sigsuspend(int64_t mask);
 
 //Sends a signal.
 int _sc_sigsend(int idtype, int id, int sig);

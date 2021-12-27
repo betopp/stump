@@ -23,7 +23,7 @@ _crt_entry:
 	mov RAX, _crt_tls0
 	wrgsbase RAX
 	
-	mov RSP, _crt_stack
+	mov RSP, _crt_stack.top
 	
 	;Call libc which will call main and then exit
 	extern _libc_entry

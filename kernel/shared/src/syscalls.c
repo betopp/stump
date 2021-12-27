@@ -130,11 +130,11 @@ pid_t k_sc_fork(void)
 	}
 	
 	//Find space for new thread
-	childthread = thread_lockfree();
-	if(childthread == NULL)
+	int thread_err = thread_new(child, 0, &childthread);
+	if(thread_err < 0)
 	{
 		//No room for child's first thread
-		err_ret = -EAGAIN;
+		err_ret = thread_err;
 		goto cleanup;
 	}
 	
@@ -149,13 +149,8 @@ pid_t k_sc_fork(void)
 		goto cleanup;
 	}
 	
-	//Copy state of calling thread and put new thread in its process.
+	//Copy state of calling thread and put new thread in its process, except the child thread returns 0.
 	m_drop_copy(&(childthread->drop), &(tptr->drop));
-	childthread->state = THREAD_STATE_READY;
-	childthread->process = child;
-	child->nthreads = 1;
-	
-	//Child thread returns 0
 	m_drop_retval(&(childthread->drop), 0);
 	
 	//Copy file descriptors and PWD
@@ -399,18 +394,21 @@ int k_sc_access(int fd, int gain, int lose)
 	//If this is a pipe, we need to change its reference-count of readers/writers
 	if(S_ISFIFO(fptr->mode))
 	{
-		pipe_t *pipe = pipe_lockid(fptr->special);
+		int pipe_id = (fptr->special > 0) ? fptr->special : -fptr->special;
+		pipe_dir_t pipe_dir = (fptr->special > 0) ? PIPE_DIR_FORWARD : PIPE_DIR_REVERSE;
+		
+		pipe_t *pipe = pipe_lockid(pipe_id);
 		KASSERT(pipe != NULL);
 		
 		if(oldaccess & _SC_ACCESS_R)
-			pipe->refs_file_r--;
+			pipe->dirs[pipe_dir].refs_r--;
 		if(oldaccess & _SC_ACCESS_W)
-			pipe->refs_file_w--;
+			pipe->dirs[pipe_dir].refs_w--;
 		
 		if(fptr->access & _SC_ACCESS_R)
-			pipe->refs_file_r++;
+			pipe->dirs[pipe_dir].refs_r++;
 		if(fptr->access & _SC_ACCESS_W)
-			pipe->refs_file_w++;
+			pipe->dirs[pipe_dir].refs_w++;
 		
 		pipe_unlock(pipe);
 	}
@@ -662,26 +660,87 @@ int k_sc_ioctl(int fd, int operation, void *buf, ssize_t len)
 
 int64_t k_sc_sigmask(int how, int64_t mask)
 {
-	(void)how;
-	(void)mask;
-	KASSERT(0);
-	return -ENOSYS;
-}
-
-int k_sc_sigsuspend(int64_t mask)
-{
-	(void)mask;
-	KASSERT(0);
-	return -ENOSYS;
+	thread_t *tptr = thread_lockcur();
+	int64_t retval = tptr->sigmask;
+	switch(how)
+	{
+		case SIG_BLOCK:
+		{
+			tptr->sigmask |= mask;
+			break;
+		}
+		case SIG_SETMASK:
+		{
+			tptr->sigmask = mask;
+			break;
+		}
+		case SIG_UNBLOCK:
+		{
+			tptr->sigmask &= ~mask;
+			break;
+		}
+		default:
+		{
+			thread_unlock(tptr);
+			return -EINVAL;
+		}
+	}
+	tptr->sigmask &= 0x7FFFFFFFFFFFFFFFul;
+	tptr->sigmask &= ~(1ul << SIGKILL);
+	tptr->sigmask &= ~(1ul << SIGSTOP);
+	thread_unlock(tptr);
+	KASSERT(retval >= 0);
+	return retval;
 }
 
 int k_sc_sigsend(int idtype, int id, int sig)
 {
-	(void)idtype;
-	(void)id;
-	(void)sig;
-	KASSERT(0);
-	return -ENOSYS;
+	if(sig < 0 || sig >= 63)
+		return -EINVAL;
+	
+	bool any_signal = false;
+	for(int tt = 0; tt < THREAD_MAX; tt++)
+	{
+		thread_t *tptr = &(thread_table[tt]);
+		m_spl_acq(&(tptr->spl));
+		
+		if(tptr->state == THREAD_STATE_NONE)
+		{
+			//No thread here
+			m_spl_rel(&(tptr->spl));
+			continue;
+		}
+		
+		bool id_match = false;
+		switch(idtype)
+		{
+			case P_PID: id_match = (tptr->process->pid == id); break;
+			case P_PGID: id_match = (tptr->process->pgid == id); break;
+			case P_TID: id_match = (tptr->tid == id); break;
+			case P_ALL: id_match = true; break;
+			default: m_spl_rel(&(tptr->spl)); return -EINVAL;
+		}
+		
+		if(!id_match)
+		{
+			//Not a thread we're looking for
+			m_spl_rel(&(tptr->spl));
+			continue;
+		}
+		
+		//Okay, this is a thread we want to signal. We'll consider this a success.
+		any_signal = true;
+		tptr->sigpend |= (1ul << sig);
+		thread_unpause(tptr->tid);
+		
+		m_spl_rel(&(tptr->spl));
+		
+		//PID and TID options signal a single thread; others signal multiple.
+		if(idtype == P_PID || idtype == P_TID)
+			break;
+	}
+	
+	return any_signal ? 0 : -ESRCH;
 }
 
 ssize_t k_sc_siginfo(_sc_siginfo_t *buf_ptr, ssize_t buf_len)
@@ -893,22 +952,29 @@ int64_t k_sc_getrtc(void)
 void k_sc_pause(void)
 {
 	thread_t *tptr = thread_lockcur();
-	if(tptr->unpauses > tptr->unpauses_past)
-	{
-		//Somebody has unpaused us since we last returned. Return immediately.
-		tptr->unpauses_past = tptr->unpauses;
-		thread_unlock(tptr);
-		return;
-	}
 	
-	//Nobody's unpaused us since we last returned. This thread blocks.
-	tptr->state = THREAD_STATE_WAIT;
+	//Unpauses gets incremented atomically without holding the thread's lock.
+	//So, capture it while we work with it.
+	m_atomic_t unpauses_now = (volatile m_atomic_t)(tptr->unpauses);
+	
+	//Each time we call pause, we require at least one corresponding unpause.
+	//But if we've got an excess of unpauses, consume them all at once.
+	tptr->unpauses_req++;
+	if(tptr->unpauses_req < unpauses_now)
+		tptr->unpauses_req = unpauses_now;
+		
 	thread_unlock(tptr);
 	return;
 }
 
 int k_sc_con_init(const _sc_con_init_t *buf_ptr, ssize_t buf_len)
 {
+	//We're initializing the console, so the calling thread will be the one to get unpaused by its events.
+	thread_t *tptr = thread_lockcur();
+	id_t contid = tptr->tid;
+	thread_unlock(tptr);
+	tptr = NULL;
+	
 	//Copy parameters from user
 	_sc_con_init_t parms = {0};
 	if(buf_len > (ssize_t)sizeof(parms))
@@ -944,6 +1010,8 @@ int k_sc_con_init(const _sc_con_init_t *buf_ptr, ssize_t buf_len)
 	pptr->fb.width = parms.fb_width;
 	pptr->fb.height = parms.fb_height;
 	pptr->fb.stride = parms.fb_stride;
+	
+	pptr->contid = contid;
 	
 	process_unlock(pptr);
 	pptr = NULL;
@@ -1000,8 +1068,8 @@ ssize_t k_sc_con_input(_sc_con_input_t *buf_ptr, ssize_t each_bytes, ssize_t buf
 	
 	//Todo
 	(void)buf_ptr;
-	(void)each_bytes;
 	(void)buf_bytes;
+	process_unlock(pptr);
 	return 0;
 }
 
@@ -1032,8 +1100,13 @@ int k_sc_con_pass(pid_t next)
 	
 	pptr->hascon = false;
 	newpptr->hascon = true;
+	id_t notify_tid = newpptr->contid;
+	
 	process_unlock(pptr);
 	process_unlock(newpptr);
+	
+	thread_unpause(notify_tid);
+	
 	return 0;
 }
 

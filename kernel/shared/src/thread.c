@@ -5,12 +5,11 @@
 #include "thread.h"
 #include "m_intr.h"
 #include "m_tls.h"
+#include "kassert.h"
 #include <errno.h>
 #include <stddef.h>
 
-//All threads in the system
-#define THREAD_MAX 1024
-static thread_t thread_table[THREAD_MAX];
+thread_t thread_table[THREAD_MAX];
 
 thread_t *thread_lockfree(void)
 {
@@ -22,7 +21,14 @@ thread_t *thread_lockfree(void)
 		{
 			if(tptr->state == THREAD_STATE_NONE)
 			{
-				//Found a free spot. Return it, still locked.
+				//Found a free spot. 
+				
+				//Make sure it's got a valid ID
+				tptr->tid += THREAD_MAX;
+				if( (tptr->tid <= 0) || ((tptr->tid % THREAD_MAX) != tt) )
+					tptr->tid = tt;
+				
+				//Return it, still locked.
 				return tptr;
 			}
 			
@@ -44,7 +50,7 @@ int thread_new(process_t *process, uintptr_t entry, thread_t **thread_out)
 		return -ENOMEM;
 	}
 	
-	tptr->state = THREAD_STATE_READY;
+	tptr->state = THREAD_STATE_SUSPEND;
 	tptr->process = process;
 	
 	m_drop_reset(&(tptr->drop), entry);
@@ -54,6 +60,26 @@ int thread_new(process_t *process, uintptr_t entry, thread_t **thread_out)
 	//Success
 	*thread_out = tptr;
 	return 0;
+}
+
+thread_t *thread_locktid(id_t tid)
+{
+	if(tid < 0)
+		return NULL;
+	
+	//Array index corresponds to ID
+	thread_t *tptr = &(thread_table[tid % THREAD_MAX]);
+	m_spl_acq(&(tptr->spl));
+	
+	if( (tptr->state == THREAD_STATE_NONE) || (tptr->tid != tid) )
+	{
+		//No/wrong thread here.
+		m_spl_rel(&(tptr->spl));
+		return NULL;
+	}
+	
+	//Got the thread we wanted - return, still locked
+	return tptr;
 }
 
 thread_t *thread_lockcur(void)
@@ -66,6 +92,14 @@ thread_t *thread_lockcur(void)
 void thread_unlock(thread_t *thread)
 {
 	m_spl_rel(&(thread->spl));
+}
+
+void thread_unpause(id_t tid)
+{
+	//This kinda races but we don't care.
+	//If the thread was cleaned-up or replaced then whatever, there's no harm in unpausing someone else.
+	KASSERT(tid >= 0);
+	m_atomic_increment_and_fetch(&(thread_table[tid % THREAD_MAX].unpauses));
 }
 
 void thread_sched(void)
@@ -83,10 +117,13 @@ void thread_sched(void)
 		{
 			if(m_spl_try(&(thread_table[tt].spl)))
 			{
-				if(thread_table[tt].state == THREAD_STATE_READY)
+				if(thread_table[tt].state == THREAD_STATE_SUSPEND)
 				{
-					tptr = &(thread_table[tt]);
-					break;
+					if(thread_table[tt].unpauses >= thread_table[tt].unpauses_req)
+					{
+						tptr = &(thread_table[tt]);
+						break;
+					}
 				}
 				
 				m_spl_rel(&(thread_table[tt].spl));

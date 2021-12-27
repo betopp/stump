@@ -15,8 +15,8 @@
 #include "confont.h"
 
 //Todo - determine this dynamically
-#define FB_WIDTH 640
-#define FB_HEIGHT 480
+#define FB_WIDTH 1024
+#define FB_HEIGHT 768
 
 //Backbuffer as allocated
 uint32_t *fb_ptr;
@@ -157,7 +157,7 @@ static void glyph(int x, int y, char gl)
 		uint32_t *dst = (uint32_t*)(((char*)fb_ptr) + (x * sizeof(uint32_t)) + ( (y + chy) * fb_stride));
 		for(int chx = 0; chx < confont_chx; chx++)
 		{
-			dst[chx] = (confont_bits[(uint8_t)gl][chy] & (1<<chx)) ? 0xFFFFFFFF : 0x00000000;
+			dst[chx] = (confont_bits[(uint8_t)gl][chy] & (1<<chx)) ? 0xFFFFFFFF : 0x44444444;
 		}
 	}
 }
@@ -328,16 +328,8 @@ int main(int argc, const char **argv, const char **envp)
 	(void)envp;
 	
 	//Make pipes that will go to/from the shell
-	int toshell_fds[2];
-	int toshell_err = pipe(toshell_fds);
-	if(toshell_err < 0)
-	{
-		perror("pipe toshell");
-		abort();
-	}
-	fd_toshell_r = toshell_fds[0];
-	fd_toshell_w = toshell_fds[1];
 	
+	//Make a pipe that will come from the shell, as it outputs to the terminal.
 	int fromshell_fds[2];
 	int fromshell_err = pipe(fromshell_fds);
 	if(fromshell_err < 0)
@@ -347,6 +339,36 @@ int main(int argc, const char **argv, const char **envp)
 	}
 	fd_fromshell_r = fromshell_fds[0];
 	fd_fromshell_w = fromshell_fds[1];
+	
+	//Open the reverse side of the pipe to get input from the terminal to the shell.
+	int fd_toshell_r = _sc_find(fd_fromshell_w, "~");
+	if(fd_toshell_r < 0)
+	{
+		errno = -fd_toshell_r;
+		perror("pipe reverse r");
+		abort();
+	}
+	int fd_toshell_w = _sc_find(fd_fromshell_r, "~");
+	if(fd_toshell_w < 0)
+	{
+		errno = -fd_toshell_w;
+		perror("pipe reverse w");
+		abort();
+	}	
+	int access_w_err = _sc_access(fd_toshell_w, _SC_ACCESS_W, _SC_ACCESS_R);
+	if(access_w_err < 0)
+	{
+		errno = -access_w_err;
+		perror("pipe access w");
+		abort();
+	}
+	int access_r_err = _sc_access(fd_toshell_r, _SC_ACCESS_R, _SC_ACCESS_W);
+	if(access_r_err < 0)
+	{
+		errno = -access_r_err;
+		perror("pipe access r");
+		abort();
+	}
 	
 	//Figure out framebuffer dimensions and allocate enough memory to back it	
 	fb_width = FB_WIDTH;
@@ -406,13 +428,13 @@ int main(int argc, const char **argv, const char **envp)
 	setscroll(0, 0);
 	
 	//Show intro message
-	const char *intro = "stump terminal emulator: " BUILDVERSION " by " BUILDUSER " at " BUILDDATE "\n";
+	const char *intro = "sterm: " BUILDVERSION " by " BUILDUSER " at " BUILDDATE "\n" "sterm: spawning /bin/oksh-6.9\n";
 	for(const char *cc = intro; *cc != '\0'; cc++)
 	{
 		coutc(*cc);
 	}
 	
-	//Spawn the shell
+	//Spawn the shell (spawn the getty?)
 	pid_t forkpid = fork();
 	if(forkpid < 0)
 	{
@@ -430,6 +452,7 @@ int main(int argc, const char **argv, const char **envp)
 		dup2(fd_fromshell_w, STDOUT_FILENO);
 		dup2(fd_fromshell_w, STDERR_FILENO);
 		execve("/bin/oksh-6.9", (char*[]){"oksh-6.9", NULL}, (char**)envp);
+		perror("execve");
 		abort(); //execl shouldn't return
 	}
 	

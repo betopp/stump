@@ -6,75 +6,49 @@
 #include "kpage.h"
 #include "kassert.h"
 #include <string.h>
+#include <sc.h>
 #include <errno.h>
 
 //All pipes in the system
 #define PIPE_MAX 1024
 static pipe_t pipe_table[PIPE_MAX];
 
-//Checks references to the given pipe. If unreferenced, cleans it up.
-static void pipe_checkrefs(pipe_t *pipe)
-{
-	KASSERT(pipe->refs_ino >= 0);	
-	KASSERT(pipe->refs_file >= 0);
-	KASSERT(pipe->refs_file_r >= 0);
-	KASSERT(pipe->refs_file_w >= 0);
-	
-	if(pipe->refs_ino > 0)
-		return;
-	
-	if(pipe->refs_file > 0)
-		return;
-	
-	//refs_file == 0 implies refs_file_w and refs_file_r should also be 0.
-	KASSERT(pipe->refs_file_r == 0);
-	KASSERT(pipe->refs_file_w == 0);
-	
-	//Nobody holds this pipe - clean it up
-	kpage_free(pipe->buf_ptr, pipe->buf_len);
-	pipe->buf_ptr = NULL;
-	pipe->buf_len = 0;
-	pipe->rptr = 0;
-	pipe->wptr = 0;
-	
-}
-
 //Returns how many more bytes can be read from the given pipe's buffer before it is empty.
-static ssize_t pipe_canread(const pipe_t *p)
+static ssize_t pipe_canread(const pipe_t *p, pipe_dir_t dir)
 {
-	ssize_t r = p->rptr;
-	ssize_t w = p->wptr;
+	ssize_t r = p->dirs[dir].rptr;
+	ssize_t w = p->dirs[dir].wptr;
 	if(w < r)
-		w += p->buf_len;
+		w += p->dirs[dir].buf_len;
 	
 	return w - r;
 }
 
 //Returns how many bytes can be read in a single shot from the pipe's buffer (without wrapping).
-static ssize_t pipe_canread_single(const pipe_t *p)
+static ssize_t pipe_canread_single(const pipe_t *p, pipe_dir_t dir)
 {
-	ssize_t to_buf = p->buf_len - p->rptr;
-	ssize_t to_wptr = pipe_canread(p);
+	ssize_t to_buf = p->dirs[dir].buf_len - p->dirs[dir].rptr;
+	ssize_t to_wptr = pipe_canread(p, dir);
 	
 	return (to_wptr < to_buf) ? to_wptr : to_buf;
 }
 
 //Returns how many more bytes can be written to the given pipe's buffer before it is full.
-static ssize_t pipe_canwrite(const pipe_t *p)
+static ssize_t pipe_canwrite(const pipe_t *p, pipe_dir_t dir)
 {
-	ssize_t r = p->rptr;
-	ssize_t w = p->wptr;
+	ssize_t r = p->dirs[dir].rptr;
+	ssize_t w = p->dirs[dir].wptr;
 	if(w < r)
-		w += p->buf_len;
+		w += p->dirs[dir].buf_len;
 	
-	return (p->buf_len - 1) + r - w;
+	return (p->dirs[dir].buf_len - 1) + r - w;
 }
 
 //Returns how many bytes can be written in a single shot to the pipe's buffer (without wrapping).
-static ssize_t pipe_canwrite_single(const pipe_t *p)
+static ssize_t pipe_canwrite_single(const pipe_t *p, pipe_dir_t dir)
 {
-	ssize_t to_buf = p->buf_len - p->wptr;
-	ssize_t to_rptr = pipe_canwrite(p);
+	ssize_t to_buf = p->dirs[dir].buf_len - p->dirs[dir].wptr;
+	ssize_t to_rptr = pipe_canwrite(p, dir);
 	
 	return (to_rptr < to_buf) ? to_rptr : to_buf;
 }
@@ -82,52 +56,92 @@ static ssize_t pipe_canwrite_single(const pipe_t *p)
 int pipe_new(pipe_t **pipe_out)
 {
 	//Find a spot for the pipe in the pipe table
+	pipe_t *pptr = NULL;
 	for(int pp = 0; pp < PIPE_MAX; pp++)
 	{
-		pipe_t *pptr = &(pipe_table[pp]);
-		if(m_spl_try(&(pptr->spl)))
+		if(m_spl_try(&(pipe_table[pp].spl)))
 		{
-			if(pptr->buf_len == 0)
+			if(pipe_table[pp].dirs[PIPE_DIR_FORWARD].buf_len == 0)
 			{
-				size_t ll = 4096;
-				pptr->buf_ptr = kpage_alloc(ll);
-				if(pptr->buf_ptr == NULL)
-				{
-					//No room for buffer for this pipe.
-					m_spl_rel(&(pptr->spl));
-					return -ENOMEM;
-				}
-				pptr->buf_len = ll;
+				//Found a free spot.
+				pptr = &(pipe_table[pp]);
 				
+				//Make sure the pipe has a valid ID that maps to its location in the table.
+				//Advance IDs each time we use a slot.
 				pptr->id += PIPE_MAX;
-				if( (pptr->id < 0) && ((pptr->id % PIPE_MAX) != pp) )
+				if( (pptr->id <= 0) && ((pptr->id % PIPE_MAX) != pp) )
 					pptr->id = pp;
-				
-				pptr->rptr = 0;
-				pptr->wptr = 0;
-				pptr->refs_ino = 0;
-				pptr->refs_file_w = 0;
-				pptr->refs_file_r = 0;
-				
-				*pipe_out = pptr;
-				return 0; //Still locked
+	
+				break;
 			}
-			m_spl_rel(&(pptr->spl)); //Keep looking
+			
+			//Not free, keep looking.
+			m_spl_rel(&(pipe_table[pp].spl));
 		}
 	}
 	
-	//No free spots
-	return -ENFILE;
+	if(pptr == NULL)
+	{
+		//No free spots
+		return -ENFILE;
+	}
+	
+	//Allocate buffers for all pipe dimensions.
+	size_t pipebuf = 4096;
+	for(int dir = PIPE_DIR_NONE + 1; dir < PIPE_DIR_MAX; dir++)
+	{
+		//Shouldn't have leftover buffer; clear old structure
+		KASSERT(pptr->dirs[dir].buf_ptr == NULL);
+		KASSERT(pptr->dirs[dir].buf_len == 0);
+		memset(&(pptr->dirs[dir]), 0, sizeof(pptr->dirs[dir]));
+		
+		//Allocate buffer for this direction
+		pptr->dirs[dir].buf_ptr = kpage_alloc(pipebuf);
+		if(pptr->dirs[dir].buf_ptr == NULL)
+		{
+			//No room for buffer for this pipe direction.
+			//Free buffers for other directions that we did allocate.
+			while(dir > PIPE_DIR_NONE + 1)
+			{
+				dir--;
+				kpage_free(pptr->dirs[dir].buf_ptr, pptr->dirs[dir].buf_len);
+				pptr->dirs[dir].buf_ptr = NULL;
+				pptr->dirs[dir].buf_len = 0;
+			}
+			
+			//Not enough memory to construct the pipe.
+			m_spl_rel(&(pptr->spl));
+			return -ENOMEM;
+		}
+		pptr->dirs[dir].buf_len = pipebuf;
+	}
+	
+	KASSERT(pptr->id > 0);
+	*pipe_out = pptr;
+	return 0; //Still locked
+}
+
+void pipe_delete(pipe_t *pipe)
+{
+	for(int dd = PIPE_DIR_NONE + 1; dd < PIPE_DIR_MAX; dd++)
+	{
+		KASSERT(pipe->dirs[dd].refs_r == 0);
+		KASSERT(pipe->dirs[dd].refs_w == 0);
+		
+		kpage_free(pipe->dirs[dd].buf_ptr, pipe->dirs[dd].buf_len);
+		memset(&(pipe->dirs[dd]), 0, sizeof(pipe->dirs[dd]));
+	}
+	m_spl_rel(&(pipe->spl));
 }
 
 pipe_t *pipe_lockid(int id)
 {
-	if(id < 0)
+	if(id <= 0)
 		return NULL;
 	
 	pipe_t *pptr = &(pipe_table[id % PIPE_MAX]);
 	m_spl_acq(&(pptr->spl));
-	if(pptr->buf_ptr == NULL || pptr->id != id)
+	if((pptr->dirs[PIPE_DIR_FORWARD].buf_len == 0) || pptr->id != id)
 	{
 		//No/wrong pipe here
 		m_spl_rel(&(pptr->spl));
@@ -140,17 +154,16 @@ pipe_t *pipe_lockid(int id)
 
 void pipe_unlock(pipe_t *pptr)
 {
-	pipe_checkrefs(pptr);
 	m_spl_rel(&(pptr->spl));
 }
 
-ssize_t pipe_write(pipe_t *pptr, const void *buf, ssize_t nbytes)
+ssize_t pipe_write(pipe_t *pptr, pipe_dir_t dir, const void *buf, ssize_t nbytes)
 {		
 	//POSIX requires that writes of 512 bytes or less can complete atomically.
 	//So just don't allow writing to pipes with less than 512 bytes in their buffer.
-	if(pipe_canwrite(pptr) < 512)
+	if(pipe_canwrite(pptr, dir) < 512)
 	{
-		if(pptr->refs_file_r)
+		if(pptr->dirs[dir].refs_r)
 			return -EAGAIN; //Pipe has no room, but has readers
 		else
 			return -EPIPE; //No room in the pipe and no one draining it
@@ -161,15 +174,15 @@ ssize_t pipe_write(pipe_t *pptr, const void *buf, ssize_t nbytes)
 	ssize_t written = 0;
 	while(1)
 	{
-		ssize_t copylen = pipe_canwrite_single(pptr);
+		ssize_t copylen = pipe_canwrite_single(pptr, dir);
 		if(copylen > nbytes)
 			copylen = nbytes;
 		
 		if(copylen == 0)
 			break;
 		
-		memcpy(pptr->buf_ptr + pptr->wptr, buf_bytes, copylen);
-		pptr->wptr = (pptr->wptr + copylen) % (pptr->buf_len);
+		memcpy(pptr->dirs[dir].buf_ptr + pptr->dirs[dir].wptr, buf_bytes, copylen);
+		pptr->dirs[dir].wptr = (pptr->dirs[dir].wptr + copylen) % (pptr->dirs[dir].buf_len);
 		
 		buf_bytes += copylen;
 		written += copylen;
@@ -178,11 +191,11 @@ ssize_t pipe_write(pipe_t *pptr, const void *buf, ssize_t nbytes)
 	return written;
 }
 
-ssize_t pipe_read(pipe_t *pptr, void *buf, ssize_t nbytes)
+ssize_t pipe_read(pipe_t *pptr, pipe_dir_t dir, void *buf, ssize_t nbytes)
 {	
-	if(pipe_canread(pptr) < 1)
+	if(pipe_canread(pptr, dir) < 1)
 	{
-		if(pptr->refs_file_w)
+		if(pptr->dirs[dir].refs_w)
 			return -EAGAIN; //Pipe empty, but has writers
 		else
 			return -EPIPE; //Pipe empty and no one open for writing
@@ -193,15 +206,15 @@ ssize_t pipe_read(pipe_t *pptr, void *buf, ssize_t nbytes)
 	ssize_t nread = 0;
 	while(1)
 	{
-		ssize_t copylen = pipe_canread_single(pptr);
+		ssize_t copylen = pipe_canread_single(pptr, dir);
 		if(copylen > nbytes)
 			copylen = nbytes;
 		
 		if(copylen == 0)
 			break;
 		
-		memcpy(buf_bytes, pptr->buf_ptr + pptr->rptr, copylen);
-		pptr->rptr = (pptr->rptr + copylen) % (pptr->buf_len);
+		memcpy(buf_bytes, pptr->dirs[dir].buf_ptr + pptr->dirs[dir].rptr, copylen);
+		pptr->dirs[dir].rptr = (pptr->dirs[dir].rptr + copylen) % (pptr->dirs[dir].buf_len);
 		
 		buf_bytes += copylen;
 		nread += copylen;
@@ -210,3 +223,25 @@ ssize_t pipe_read(pipe_t *pptr, void *buf, ssize_t nbytes)
 	return nread;
 }
 
+int pipe_ioctl(pipe_t *pptr, pipe_dir_t dir, int operation, void *buf, ssize_t len)
+{
+	(void)buf;
+	(void)len;
+	(void)dir;
+	
+	switch(operation)
+	{
+		case _SC_IOCTL_ISATTY:
+		{
+			//If we've got references both forward and reverse, this "is a TTY".
+			bool fwd = pptr->dirs[PIPE_DIR_FORWARD].refs_r || pptr->dirs[PIPE_DIR_FORWARD].refs_w;
+			bool rev = pptr->dirs[PIPE_DIR_REVERSE].refs_r || pptr->dirs[PIPE_DIR_REVERSE].refs_w;
+			if(fwd && rev)
+				return 1;
+			else
+				return 0;
+		}
+		default:
+			return -ENOTTY;
+	}
+}

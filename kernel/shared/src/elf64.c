@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <stdint.h>
+#include <sc.h>
 
 //ELF64 data types
 typedef uint64_t elf64_addr_t; //Program address
@@ -104,6 +105,10 @@ int elf64_load(file_t *file, mem_t *mem, uintptr_t *entry_out)
 	
 	//Return value, whether we succeeded or not
 	int retval = 0;
+	
+	//Old file permissions - we don't require read permission to execute.
+	int oldaccess = file->access;
+	file->access |= _SC_ACCESS_R;
 	
 	//Read the ELF header from the beginning of the file.
 	elf64_ehdr_t ehdr = {0};
@@ -310,10 +315,12 @@ int elf64_load(file_t *file, mem_t *mem, uintptr_t *entry_out)
 	}
 	
 	//Success. Write-out the entry point for the ELF, and return 0.
+	file->access = oldaccess;
 	*entry_out = ehdr.e_entry;
 	retval = 0;
 	
 cleanup:
 	//Caller will destroy the memory space on failure, and that's all we need to clean up.
+	file->access = oldaccess;
 	return retval;	
 }

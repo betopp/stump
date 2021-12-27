@@ -330,7 +330,7 @@ ssize_t read(int fd, void *buf, size_t nbytes)
 
 int dup(int oldfd)
 {
-	int result = _sc_dup(oldfd, -1, false);
+	int result = _sc_dup(oldfd, 0, false);
 	if(result < 0)
 	{
 		errno = -result;

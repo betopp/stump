@@ -68,6 +68,7 @@ int atexit(void (*function)(void))
 
 void abort(void)
 {
+	while(1) { } //catch before kernel is ready to
 	raise(SIGABRT);
 	_sc_exit(-1, SIGABRT);
 }

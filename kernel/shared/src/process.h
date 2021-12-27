@@ -78,6 +78,9 @@ typedef struct process_s
 	//Whether this process is active on the console
 	bool hascon;
 	
+	//Thread that gets unpaused on console events
+	id_t contid;
+	
 } process_t;
 
 //All processes on system

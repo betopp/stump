@@ -104,13 +104,13 @@ static void ramfs_checkrefs(ino_t ino)
 	
 	//No links or open files. Free this inode.
 	
-	//If the inode referred to a named pipe, the pipe has one less reference.
+	//If the inode referred to a named pipe, clean up the pipe
 	if(S_ISFIFO(iptr->mode))
 	{
 		pipe_t *pipe = pipe_lockid(iptr->special);
 		KASSERT(pipe != NULL);
-		pipe->refs_ino--;
-		pipe_unlock(pipe);
+		pipe_delete(pipe);
+		iptr->special = 0;
 	}
 	
 	ramfs_trunc(ino, 0);
@@ -212,6 +212,9 @@ int ramfs_make(ino_t dir, const char *name, mode_t mode, dev_t special, ino_t *i
 	if(name == NULL || name[0] == '\0')
 		return -EINVAL;
 	
+	//ID of pipe made, if we're making an inode to refer to a pipe
+	int pipe_id = 0;
+	
 	//Error to return on failure
 	int err_ret = 0;
 	
@@ -219,6 +222,23 @@ int ramfs_make(ino_t dir, const char *name, mode_t mode, dev_t special, ino_t *i
 	int inoblock = ramfs_alloc();
 	if(inoblock < 0)
 		return inoblock;
+	
+	//If we're making a pipe, allocate room for the pipe.
+	if(S_ISFIFO(mode))
+	{
+		pipe_t *pipe = NULL;
+		int pipe_err = pipe_new(&pipe);
+		if(pipe_err < 0)
+		{
+			err_ret = pipe_err;
+			goto failure;
+		}
+		pipe_id = pipe->id;
+		pipe_unlock(pipe);
+		
+		KASSERT(pipe_id > 0);
+		special = pipe_id;
+	}
 	
 	ramfs_ino_t *newino = &(ramfs_blocks[inoblock].ino);
 	newino->mode = mode;
@@ -281,26 +301,26 @@ int ramfs_make(ino_t dir, const char *name, mode_t mode, dev_t special, ino_t *i
 		goto failure;
 	}
 	
-	//If this is a pipe, it starts with one reference
-	if(S_ISFIFO(mode))
-	{
-		pipe_t *pipe = pipe_lockid(special);
-		KASSERT(pipe != NULL);
-		pipe->refs_ino++;
-		pipe_unlock(pipe);
-	}
-	
 	//The new file starts with one link in the filesystem.
 	newino->nlinks = 1;
 	*ino_out = inoblock;
 	return 0;
 	
 failure:
+	if(pipe_id > 0)
+	{
+		pipe_t *pipe = pipe_lockid(pipe_id);
+		KASSERT(pipe != NULL);
+		pipe_delete(pipe);
+		pipe_id = 0;
+	}
+	
 	if(inoblock > 0)
 	{
 		ramfs_trunc(inoblock, 0);
 		ramfs_free(inoblock);
 	}
+	
 	KASSERT(err_ret < 0);
 	*ino_out = ~0ul;
 	return err_ret;

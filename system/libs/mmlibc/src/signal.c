@@ -153,15 +153,18 @@ int sigprocmask(int how, const sigset_t *set, sigset_t *oset)
 
 int sigsuspend(const sigset_t *sigmask)
 {	
-	int result = _sc_sigsuspend(sigmask->blockedbits);
-	if(result < 0)
-	{
-		//Should always be the case (EINTR)
-		errno = -result;
-		return -1;
-	}
+	//Callers already use this like we use _sc_pause - in a loop checking for a condition.
+	//So briefly change the signal mask, calling pause once inbetween.
+	//If the signal happens upon masking, or during pausing, we return either way.
+	int64_t oldmask = _sc_sigmask(SIG_SETMASK, sigmask->blockedbits);
+	_sc_pause();
+	_sc_sigmask(SIG_SETMASK, oldmask);
 	
-	return 0;
+	//We might have unpaused for any number of reasons.
+	//Can a caller actually determine when no signal occurred?
+	//The behavior of this function implies that they don't care.
+	errno = EINTR;
+	return -1;
 }
 
 int kill(pid_t pid, int sig)

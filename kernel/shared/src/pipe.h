@@ -8,15 +8,24 @@
 #include <stdint.h>
 #include "m_spl.h"
 
-//Information about one pipe
-typedef struct pipe_s
+//Our pipes are a bit more complex than a typical *NIX.
+//We use them to implement pseudoterminals for our graphical terminal.
+//So, they need to be bidirectional and have some process-group stuff.
+
+//Directions supported in pipes
+typedef enum pipe_dir_e
 {
-	//Spinlock protecting the pipe data
-	m_spl_t spl;
+	PIPE_DIR_NONE = 0, //None/invalid
 	
-	//ID of pipe
-	int id;
+	PIPE_DIR_FORWARD, //Normal unidirectional pipe, as in POSIX spec
+	PIPE_DIR_REVERSE, //Backward data, used in pseudoterminals
 	
+	PIPE_DIR_MAX
+} pipe_dir_t;
+
+//One direction in one pipe
+typedef struct pipe_dirinfo_s
+{
 	//Buffer for pipe data
 	uint8_t *buf_ptr;
 	size_t buf_len;
@@ -27,21 +36,32 @@ typedef struct pipe_s
 	//Next write location in buffer
 	int wptr;
 	
-	//Number of inodes referring to the pipe as a named pipe
-	int refs_ino;
+	//Number of files with this direction open for read/write (needed, so we can return EPIPE appropriately)
+	int refs_w;
+	int refs_r;
 	
-	//Number of files referring to the pipe - though perhaps neither open-for-read nor open-for-write
-	int refs_file;
+} pipe_dirinfo_t;
+
+//Information about one pipe
+typedef struct pipe_s
+{
+	//Spinlock protecting the pipe data
+	m_spl_t spl;
 	
-	//Number of files with the pipe open for read/write (needed, so we can return EPIPE appropriately)
-	int refs_file_w;
-	int refs_file_r;
+	//ID of pipe - always positive, because files refer to negative IDs as "reverse direction"
+	int id;
+	
+	//Information per pipe direction
+	pipe_dirinfo_t dirs[PIPE_DIR_MAX];
 	
 } pipe_t;
 
 //Makes a new pipe and outputs its location, still locked.
 //Returns 0 on success or a negative error number.
 int pipe_new(pipe_t **pipe_out);
+
+//Cleans up the given pipe and unlocks it.
+void pipe_delete(pipe_t *pipe);
 
 //Looks up and locks the pipe with the given ID.
 pipe_t *pipe_lockid(int id);
@@ -50,9 +70,12 @@ pipe_t *pipe_lockid(int id);
 void pipe_unlock(pipe_t *pptr);
 
 //Tries to write into the given pipe. Returns the number of bytes written, or a negative error number.
-ssize_t pipe_write(pipe_t *pptr, const void *buf, ssize_t len);
+ssize_t pipe_write(pipe_t *pptr, pipe_dir_t dir, const void *buf, ssize_t len);
 
 //Tries to read from the given pipe. Returns the number of bytes read, or a negative error number.
-ssize_t pipe_read(pipe_t *pptr, void *buf, ssize_t len);
+ssize_t pipe_read(pipe_t *pptr, pipe_dir_t dir, void *buf, ssize_t len);
+
+//Pipes respond to ioctls to do things like isatty and I hate it
+int pipe_ioctl(pipe_t *pptr, pipe_dir_t dir, int operation, void *buf, ssize_t len);
 
 #endif //PIPE_H
