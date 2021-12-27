@@ -102,6 +102,12 @@ void thread_unpause(id_t tid)
 	m_atomic_increment_and_fetch(&(thread_table[tid % THREAD_MAX].unpauses));
 }
 
+id_t thread_curtid(void)
+{
+	thread_t *tptr = m_tls_get();
+	return 	tptr->tid;
+}
+
 void thread_sched(void)
 {
 	//Try until we get something to run.

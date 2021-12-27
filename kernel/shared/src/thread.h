@@ -86,6 +86,9 @@ void thread_unlock(thread_t *thread);
 //Causes a thread to resume if waiting, or skip its next waiting if already ready.
 void thread_unpause(id_t tid);
 
+//Returns the thread ID of the current thread.
+id_t thread_curtid(void);
+
 //Finds a runnable thread and runs it, waiting until one is runnable if necessary.
 //Does not return after running the thread.
 void thread_sched(void) __attribute__((noreturn));

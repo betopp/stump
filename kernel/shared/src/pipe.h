@@ -40,6 +40,11 @@ typedef struct pipe_dirinfo_s
 	int refs_w;
 	int refs_r;
 	
+	//Threads that get unblocked on another thread accessing the pipe
+	#define PIPE_WAITING_MAX 8
+	id_t waiting_to_w[PIPE_WAITING_MAX];
+	id_t waiting_to_r[PIPE_WAITING_MAX];
+	
 } pipe_dirinfo_t;
 
 //Information about one pipe

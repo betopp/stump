@@ -5,6 +5,7 @@
 #include "pipe.h"
 #include "kpage.h"
 #include "kassert.h"
+#include "thread.h"
 #include <string.h>
 #include <sc.h>
 #include <errno.h>
@@ -12,6 +13,36 @@
 //All pipes in the system
 #define PIPE_MAX 1024
 static pipe_t pipe_table[PIPE_MAX];
+
+//Puts the current thread on the list of waiters. Unpauses one to take its place if necessary.
+static void pipe_addwaiter(id_t waiters[])
+{
+	for(int ww = 0; ww < PIPE_WAITING_MAX; ww++)
+	{
+		if(waiters[ww] == 0)
+		{
+			waiters[ww] = thread_curtid();
+			return;
+		}
+	}
+	
+	//Ugly but technically correct. They'll waste some CPU cycles and re-pause. It'll thrash.
+	thread_unpause(waiters[0]);
+	waiters[0] = thread_curtid();
+	return;
+}
+
+//Unpauses all threads on the list of those waiting.
+static void pipe_kickwaiters(id_t waiters[])
+{
+	for(int ww = 0; ww < PIPE_WAITING_MAX; ww++)
+	{
+		if(waiters[ww])
+			thread_unpause(waiters[ww]);
+		
+		waiters[ww] = 0;
+	}
+}
 
 //Returns how many more bytes can be read from the given pipe's buffer before it is empty.
 static ssize_t pipe_canread(const pipe_t *p, pipe_dir_t dir)
@@ -164,9 +195,13 @@ ssize_t pipe_write(pipe_t *pptr, pipe_dir_t dir, const void *buf, ssize_t nbytes
 	if(pipe_canwrite(pptr, dir) < 512)
 	{
 		if(pptr->dirs[dir].refs_r)
-			return -EAGAIN; //Pipe has no room, but has readers
-		else
-			return -EPIPE; //No room in the pipe and no one draining it
+		{
+			//No room in the pipe, but someone has it open to read and could drain it.
+			pipe_addwaiter(pptr->dirs[dir].waiting_to_w);
+			return -EAGAIN;
+		}
+		
+		return -EPIPE; //No room in the pipe and no one draining it
 	}
 		
 	//Write as much as we can
@@ -188,6 +223,10 @@ ssize_t pipe_write(pipe_t *pptr, pipe_dir_t dir, const void *buf, ssize_t nbytes
 		written += copylen;
 		nbytes -= copylen;
 	}
+	
+	//Unpause anyone waiting to read from this pipe, if we just wrote
+	pipe_kickwaiters(pptr->dirs[dir].waiting_to_r);
+	
 	return written;
 }
 
@@ -196,9 +235,13 @@ ssize_t pipe_read(pipe_t *pptr, pipe_dir_t dir, void *buf, ssize_t nbytes)
 	if(pipe_canread(pptr, dir) < 1)
 	{
 		if(pptr->dirs[dir].refs_w)
-			return -EAGAIN; //Pipe empty, but has writers
-		else
-			return -EPIPE; //Pipe empty and no one open for writing
+		{
+			//Pipe empty, but has writers who could fill it.
+			pipe_addwaiter(pptr->dirs[dir].waiting_to_r);
+			return -EAGAIN;
+		}
+		
+		return -EPIPE; //Pipe empty and no one filling it
 	}
 	
 	//Read as much as we can
@@ -220,6 +263,10 @@ ssize_t pipe_read(pipe_t *pptr, pipe_dir_t dir, void *buf, ssize_t nbytes)
 		nread += copylen;
 		nbytes -= copylen;
 	}
+	
+	//Unpause anyone waiting to write to this pipe, if we just read
+	pipe_kickwaiters(pptr->dirs[dir].waiting_to_w);
+	
 	return nread;
 }
 

@@ -490,7 +490,7 @@ int main(int argc, const char **argv, const char **envp)
 		while(1)
 		{
 			uint8_t from_shell_buf[64];
-			ssize_t from_shell_len = read(fd_fromshell_r, from_shell_buf, sizeof(from_shell_buf));
+			ssize_t from_shell_len = _sc_read(fd_fromshell_r, from_shell_buf, sizeof(from_shell_buf));
 			if(from_shell_len <= 0)
 				break;
 			

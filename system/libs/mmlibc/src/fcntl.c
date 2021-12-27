@@ -307,24 +307,43 @@ int openat(int fd, const char *path, int flags, ...)
 
 ssize_t write(int fd, const void *buf, size_t nbytes)
 {
-	ssize_t result = _sc_write(fd, buf, nbytes);
-	if(result < 0)
+	//Kernel doesn't handle blocking on write. Try as long as it says so.
+	//Todo - nonblocking if the user asks for it.
+	while(1)
 	{
-		errno = -result;
-		return -1;
+		ssize_t result = _sc_write(fd, buf, nbytes);
+		if(result == -EAGAIN)
+		{
+			_sc_pause();
+			continue;
+		}
+		if(result < 0)
+		{
+			errno = -result;
+			return -1;
+		}
+		return result;
 	}
-	return result;
 }
 
 ssize_t read(int fd, void *buf, size_t nbytes)
 {
-	ssize_t result = _sc_read(fd, buf, nbytes);
-	if(result < 0)
+	//Similar to synchronization of write.
+	while(1)
 	{
-		errno = -result;
-		return -1;
+		ssize_t result = _sc_read(fd, buf, nbytes);
+		if(result == -EAGAIN)
+		{
+			_sc_pause();
+			continue;
+		}
+		if(result < 0)
+		{
+			errno = -result;
+			return -1;
+		}
+		return result;
 	}
-	return result;
 }
 
 
