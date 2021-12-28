@@ -12,4 +12,7 @@ void m_intr_ei(bool enable);
 //Atomically halts with interrupts enabled, catching immediately any pending interrupts.
 void m_intr_halt(void);
 
+//Wakes halted processors.
+void m_intr_wake(void);
+
 #endif //M_INTR_H

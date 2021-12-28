@@ -15,8 +15,8 @@
 #include "confont.h"
 
 //Todo - determine this dynamically
-#define FB_WIDTH 1024
-#define FB_HEIGHT 768
+#define FB_WIDTH 800
+#define FB_HEIGHT 600
 
 //Backbuffer as allocated
 uint32_t *fb_ptr;
@@ -157,7 +157,7 @@ static void glyph(int x, int y, char gl)
 		uint32_t *dst = (uint32_t*)(((char*)fb_ptr) + (x * sizeof(uint32_t)) + ( (y + chy) * fb_stride));
 		for(int chx = 0; chx < confont_chx; chx++)
 		{
-			dst[chx] = (confont_bits[(uint8_t)gl][chy] & (1<<chx)) ? 0xFFFFFFFF : 0x44444444;
+			dst[chx] = (confont_bits[(uint8_t)gl][chy] & (1<<chx)) ? 0xFFFFFFFF : 0;
 		}
 	}
 }
@@ -341,14 +341,14 @@ int main(int argc, const char **argv, const char **envp)
 	fd_fromshell_w = fromshell_fds[1];
 	
 	//Open the reverse side of the pipe to get input from the terminal to the shell.
-	int fd_toshell_r = _sc_find(fd_fromshell_w, "~");
+	fd_toshell_r = _sc_find(fd_fromshell_w, "~");
 	if(fd_toshell_r < 0)
 	{
 		errno = -fd_toshell_r;
 		perror("pipe reverse r");
 		abort();
 	}
-	int fd_toshell_w = _sc_find(fd_fromshell_r, "~");
+	fd_toshell_w = _sc_find(fd_fromshell_r, "~");
 	if(fd_toshell_w < 0)
 	{
 		errno = -fd_toshell_w;
@@ -471,7 +471,7 @@ int main(int argc, const char **argv, const char **envp)
 			if(from_con_len <= 0)
 				break;
 			
-			for(uint32_t ii = 0; ii < sizeof(from_con_buf) / sizeof(_sc_con_input_t); ii++)
+			for(uint32_t ii = 0; ii < from_con_len / sizeof(_sc_con_input_t); ii++)
 			{
 				switch(from_con_buf[ii].type.type)
 				{

@@ -84,6 +84,7 @@ thread_t *thread_lockcur(void);
 void thread_unlock(thread_t *thread);
 
 //Causes a thread to resume if waiting, or skip its next waiting if already ready.
+//CAN BE CALLED FROM ISR.
 void thread_unpause(id_t tid);
 
 //Returns the thread ID of the current thread.

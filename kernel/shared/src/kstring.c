@@ -82,21 +82,43 @@ int memcmp(const void *s1v, const void *s2v, size_t len)
 
 void *memset(void *dst, int c, size_t len)
 {
-	uint8_t *dst_b = (uint8_t*)(dst);
-	for(size_t ll = 0; ll < len; ll++)
+	uint8_t *dstb = (uint8_t*)dst;
+	while(len % 8)
 	{
-		dst_b[ll] = c;
+		*dstb = c & 0xFF;
+		dstb++;
+		len--;
+	}
+	
+	uint64_t eightc = c & 0xFF;
+	eightc |= eightc << 8;
+	eightc |= eightc << 16;
+	eightc |= eightc << 32;
+	uint64_t *dstq = (uint64_t*)dstb;
+	for(size_t w = 0; w < len / 8; w++)
+	{
+		dstq[w] = eightc;
 	}
 	return dst;
 }
 
 void *memcpy(void *dst, const void *src, size_t len)
-{
+{	
 	uint8_t *dstb = (uint8_t*)dst;
 	const uint8_t *srcb = (const uint8_t*)src;
-	for(size_t ll = 0; ll < len; ll++)
+	while(len % 8)
 	{
-		dstb[ll] = srcb[ll];
+		*dstb = *srcb;
+		dstb++;
+		srcb++;
+		len--;
+	}
+	
+	uint64_t *dstq = (uint64_t*)dstb;
+	const uint64_t *srcq = (uint64_t*)srcb;
+	for(size_t w = 0; w < len / 8; w++)
+	{
+		dstq[w] = srcq[w];
 	}
 	return dst;
 }

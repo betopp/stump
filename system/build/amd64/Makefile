@@ -21,7 +21,7 @@ ASFLAGS += -g -F dwarf
 
 #Compile flags
 CFLAGS += -m64 -march=athlon64 -mabi=sysv -ffreestanding 
-CFLAGS += -std=c99 -Wall -Werror -Wextra -pedantic
+CFLAGS += -std=c99 -Wall -Werror -Wextra -pedantic -Wshadow
 CFLAGS += -nostdlib -nostdinc
 CFLAGS += -I$(L)/mmlibc/include
 CFLAGS += -I$(L)/libsc/include

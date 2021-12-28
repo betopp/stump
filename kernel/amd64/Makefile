@@ -20,11 +20,11 @@ NASMFLAGS += -g -F dwarf
 
 CFLAGS += -ffreestanding -nostdinc
 CFLAGS += -mcmodel=kernel -mabi=sysv -mno-red-zone
-CFLAGS += -std=gnu99 -Wall -Werror -Wextra -pedantic
+CFLAGS += -std=gnu99 -Wall -Werror -Wextra -pedantic -Wshadow
 CFLAGS += -I../../system/libs/mmlibc/include
 CFLAGS += -I../../system/libs/libsc/include
 CFLAGS += -I../shared/machine
-CFLAGS += -g
+CFLAGS += -g -O1 -mno-sse -mno-avx
 
 LDFLAGS += -g
 LDFLAGS += -T$(LDSCRIPT)

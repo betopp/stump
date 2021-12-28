@@ -96,10 +96,17 @@ void thread_unlock(thread_t *thread)
 
 void thread_unpause(id_t tid)
 {
+	//CAN BE CALLED FROM ISR.
+	
 	//This kinda races but we don't care.
 	//If the thread was cleaned-up or replaced then whatever, there's no harm in unpausing someone else.
 	KASSERT(tid >= 0);
 	m_atomic_increment_and_fetch(&(thread_table[tid % THREAD_MAX].unpauses));
+	
+	//Send interprocessor interrupt after incrementing the unpauses count.
+	//This way, anyone who saw the old count will receive a pending interrupt after they see it.
+	//They'll have interrupts disabled while looking at the old count - so they'll wake immediately when they try to sleep.
+	m_intr_wake();
 }
 
 id_t thread_curtid(void)

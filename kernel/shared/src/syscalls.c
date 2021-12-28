@@ -13,6 +13,7 @@
 #include "file.h"
 #include "pipe.h"
 #include "elf64.h"
+#include "con.h"
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -1013,6 +1014,9 @@ int k_sc_con_init(const _sc_con_init_t *buf_ptr, ssize_t buf_len)
 	
 	pptr->contid = contid;
 	
+	if(pptr->hascon)
+		con_settid(contid);
+	
 	process_unlock(pptr);
 	pptr = NULL;
 	
@@ -1066,11 +1070,9 @@ ssize_t k_sc_con_input(_sc_con_input_t *buf_ptr, ssize_t each_bytes, ssize_t buf
 		return 0;
 	}
 	
-	//Todo
-	(void)buf_ptr;
-	(void)buf_bytes;
+	ssize_t retval = con_input(buf_ptr, buf_bytes);
 	process_unlock(pptr);
-	return 0;
+	return retval;
 }
 
 int k_sc_con_pass(pid_t next)
@@ -1105,7 +1107,7 @@ int k_sc_con_pass(pid_t next)
 	process_unlock(pptr);
 	process_unlock(newpptr);
 	
-	thread_unpause(notify_tid);
+	con_settid(notify_tid);
 	
 	return 0;
 }

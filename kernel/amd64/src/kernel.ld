@@ -16,12 +16,16 @@ SECTIONS
 	/* Start-of-loading for multiboot */
 	_MULTIBOOT_LOAD_ADDR = . - _KERNEL_VOFFS;
 	
-	.text ALIGN(0x1000) : AT(ADDR(.text) - _KERNEL_VOFFS)
+	.boot ALIGN(0x1000) : AT(ADDR(.boot) - _KERNEL_VOFFS)
 	{	
 		/* Put multiboot in its own place up front, so bootloader can find it*/
-		*(.multiboot)
-		*(.eh_frame)
-		*(.text)
+		*(.multiboot*)
+	}
+	
+	.text ALIGN(0x1000) : AT(ADDR(.text) - _KERNEL_VOFFS)
+	{	
+		*(.eh_frame*)
+		*(.text*)
 	}
 	
 	.rodata ALIGN(0x1000) : AT(ADDR(.rodata) - _KERNEL_VOFFS)

@@ -8,6 +8,7 @@
 #include "systar.h"
 #include "process.h"
 #include "thread.h"
+#include "con.h"
 #include "syscalls.h"
 #include "m_panic.h"
 #include <string.h>
@@ -75,4 +76,13 @@ uintptr_t entry_syscall(uintptr_t num, uintptr_t p1, uintptr_t p2, uintptr_t p3,
 		m_drop_retval(&(tptr->drop), result);
 		m_drop(&(tptr->drop));
 	}
+	
+	m_panic("entry_syscall returning");
+}
+
+//Entered in interrupt context when a keyboard key is pressed or released.
+//Should return, to return from interrupt service.
+void entry_kbd(_sc_con_scancode_t scancode, bool state)
+{
+	con_isr_kbd(scancode, state);
 }

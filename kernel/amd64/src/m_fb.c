@@ -18,8 +18,8 @@
 #define DISPI_REG_X_OFFSET    0x08
 #define DISPI_REG_Y_OFFSET    0x09
 
-#define FB_WIDTH 1024
-#define FB_HEIGHT 768
+#define FB_WIDTH 800
+#define FB_HEIGHT 600
 
 //Performs a write to the given dispi register.
 static void dispi_reg_write(uint16_t idx, uint16_t val)

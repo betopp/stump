@@ -325,6 +325,44 @@ cpuinit_entry_all:
 	cmp RBX, 0
 	jne .notcore0
 	
+		;Build interrupt descriptor table
+		mov RDI, cpuinit_idt
+		mov RSI, cpuinit_isrptrs
+		mov RCX, 256 ;Fill all vectors
+		.idt_loop:
+		
+			mov AL, 0x8E
+			mov [RDI + 5], AL ;P=1, DPL=00, 0, Type=interrupt gate
+		
+			mov AL, 0
+			mov [RDI + 4], AL ;Interrupt Stack Table number (don't use) 000, ignored 00000		
+		
+			mov AX, cpuinit_gdt.r0code64 - cpuinit_gdt
+			mov [RDI + 2], AX ;Target selector
+			
+			mov RAX, [RSI]
+			mov [RDI + 0], AX ;Target Offset[15:0]
+			shr RAX, 16
+			mov [RDI + 6], AX ;Target Offset[31:16]
+			shr RAX, 16
+			mov [RDI + 8], EAX ;Target Offset[63:32]
+			
+			mov EAX, 0
+			mov [RDI + 12], EAX ;Reserved
+			
+			add RDI, 16 ;16 bytes per interrupt descriptor
+			add RSI, 8 ;8 byte addresses of ISRs
+			loop .idt_loop ;Count down RCX
+		.idt_done:
+		
+		;Set up interrupt handling
+		extern pic8259_init
+		call pic8259_init
+		
+		;Set up keyboard
+		extern ps2kbd_init
+		call ps2kbd_init
+	
 		;Set up framebuffer output
 		extern m_fb_init
 		call m_fb_init
@@ -483,9 +521,322 @@ cpuinit_syscall_64:
 	push RSP ;With last parameter as saved context
 	extern entry_syscall
 	call entry_syscall
+
+bits 64
+
+;Macro for saving temporary registers on entry to external interrupt handler.
+;We assume the kernel calling convention will preserve registers that are supposed to be preserved.
+;The usually-clobbered registers, though, need us to preserve them on entry/exit from ISR.
+%macro irq_save 0
+	push RAX
+	push RCX
+	push RDX
+	push RSI
+	push RDI
+	push R8
+	push R9
+	push R10
+	push R11
+%endmacro
+
+%macro irq_restore 0
+	pop R11
+	pop R10
+	pop R9
+	pop R8
+	pop RDI
+	pop RSI
+	pop RDX
+	pop RCX
+	pop RAX
+%endmacro
+
+
+
+;Entered on any unused interrupt vector
+cpuinit_isr_bad:
+	.spin:
+	jmp .spin
+
+;CPU exceptions follow
+
+;ISR - divide-by-zero error
+cpuinit_isr_de:
+	.spin:
+	jmp .spin
+	
+;ISR - debug exception
+cpuinit_isr_db:
+	.spin:
+	jmp .spin
+	
+;ISR - non-maskable interrupt
+cpuinit_isr_nmi:
+	.spin:
+	jmp .spin
+
+;ISR - breakpoint exception
+cpuinit_isr_bp:
+	.spin:
+	jmp .spin
+
+;ISR - overflow exception
+cpuinit_isr_of:
+	.spin:
+	jmp .spin
+
+;ISR - bound-range exception
+cpuinit_isr_br:
+	.spin:
+	jmp .spin
+
+;ISR - undefined opcode exception
+cpuinit_isr_ud:
+	.spin:
+	jmp .spin
+
+;ISR - device-not-available exception
+cpuinit_isr_nm:
+	.spin:
+	jmp .spin
+
+;ISR - double-fault
+cpuinit_isr_df:
+	.spin:
+	jmp .spin
+
+;ISR - coprocessor segment overrun
+cpuinit_isr_co:
+	.spin:
+	jmp .spin
+
+;ISR - invalid TSS exception
+cpuinit_isr_ts:
+	.spin:
+	jmp .spin
+
+;ISR - segment-not-present exception
+cpuinit_isr_np:
+	.spin:
+	jmp .spin
+
+;ISR - stack exception
+cpuinit_isr_ss:
+	.spin:
+	jmp .spin
+
+;ISR - general protection exception
+cpuinit_isr_gp:
+	.spin:
+	jmp .spin
+
+;ISR - page fault
+cpuinit_isr_pf:
+	.spin:
+	jmp .spin
+
+;ISR - x87 floating-point exception pending
+cpuinit_isr_mf:
+	.spin:
+	jmp .spin
+
+;ISR - alignment check exception
+cpuinit_isr_ac:
+	.spin:
+	jmp .spin
+
+;ISR - machine-check exception
+cpuinit_isr_mc:
+	.spin:
+	jmp .spin
+
+;ISR - SIMD floating-point exception
+cpuinit_isr_xf:
+	.spin:
+	jmp .spin
+
+;ISR - hypervisor injection exception
+cpuinit_isr_hv:
+	.spin:
+	jmp .spin
+
+;ISR - VMM communication exception
+cpuinit_isr_vc:
+	.spin:
+	jmp .spin
+
+;ISR - security exception
+cpuinit_isr_sx:
+	.spin:
+	jmp .spin
+	
+;PIC interrupts follow - must send EOI before returning, to tell PIC that interrupt is done
+extern pic8259_pre_iret
+	
+;ISR - handles legacy IRQ0
+cpuinit_isr_irq0:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ1
+cpuinit_isr_irq1:
+	irq_save
+	
+	extern ps2kbd_isr
+	call ps2kbd_isr
+	
+	mov RDI, 1
+	call pic8259_pre_iret
+	
+	irq_restore
+	iretq
+
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ2
+cpuinit_isr_irq2:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ3
+cpuinit_isr_irq3:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ4
+cpuinit_isr_irq4:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ5
+cpuinit_isr_irq5:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ6
+cpuinit_isr_irq6:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ7
+cpuinit_isr_irq7:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ8
+cpuinit_isr_irq8:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ9
+cpuinit_isr_irq9:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ10
+cpuinit_isr_irq10:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ11
+cpuinit_isr_irq11:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ12
+cpuinit_isr_irq12:
+	.spin:
+	jmp .spin
+	
+;ISR - handles legacy IRQ13
+cpuinit_isr_irq13:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ14
+cpuinit_isr_irq14:
+	.spin:
+	jmp .spin
+
+;ISR - handles legacy IRQ15
+cpuinit_isr_irq15:
+	.spin:
+	jmp .spin
+
+;ISR - does nothing but returns, to take the CPU out of halt.
+cpuinit_isr_woke:
+	iret
 	
 section .data
 bits 64
+
+;Table of interrupt service routines - just the addresses, so we can swizzle them at runtime.
+align 8
+cpuinit_isrptrs:
+	;First 32 - AMD64 CPU exceptions, 0x00...0x1F
+	dq cpuinit_isr_de  ; 0
+	dq cpuinit_isr_db  ; 1
+	dq cpuinit_isr_nmi ; 2
+	dq cpuinit_isr_bp  ; 3
+	dq cpuinit_isr_of  ; 4
+	dq cpuinit_isr_br  ; 5
+	dq cpuinit_isr_ud  ; 6
+	dq cpuinit_isr_nm  ; 7
+	dq cpuinit_isr_df  ; 8
+	dq cpuinit_isr_co  ; 9
+	dq cpuinit_isr_ts  ;10
+	dq cpuinit_isr_np  ;11
+	dq cpuinit_isr_ss  ;12
+	dq cpuinit_isr_gp  ;13
+	dq cpuinit_isr_pf  ;14
+	dq cpuinit_isr_bad ;15
+	dq cpuinit_isr_mf  ;16
+	dq cpuinit_isr_ac  ;17
+	dq cpuinit_isr_mc  ;18
+	dq cpuinit_isr_xf  ;19
+	dq cpuinit_isr_bad ;20
+	dq cpuinit_isr_bad ;21
+	dq cpuinit_isr_bad ;22
+	dq cpuinit_isr_bad ;23
+	dq cpuinit_isr_bad ;24
+	dq cpuinit_isr_bad ;25
+	dq cpuinit_isr_bad ;26
+	dq cpuinit_isr_bad ;27
+	dq cpuinit_isr_hv  ;28
+	dq cpuinit_isr_vc  ;29
+	dq cpuinit_isr_sx  ;30
+	dq cpuinit_isr_bad ;31
+	
+	;Next 16 - IRQs coming from 8259 (legacy) interrupt controller - 0x20...0x2F
+	dq cpuinit_isr_irq0  ;32
+	dq cpuinit_isr_irq1  ;33
+	dq cpuinit_isr_irq2  ;34
+	dq cpuinit_isr_irq3  ;35
+	dq cpuinit_isr_irq4  ;36
+	dq cpuinit_isr_irq5  ;37
+	dq cpuinit_isr_irq6  ;38
+	dq cpuinit_isr_irq7  ;39
+	dq cpuinit_isr_irq8  ;40
+	dq cpuinit_isr_irq9  ;41
+	dq cpuinit_isr_irq10 ;42
+	dq cpuinit_isr_irq11 ;43
+	dq cpuinit_isr_irq12 ;44
+	dq cpuinit_isr_irq13 ;45
+	dq cpuinit_isr_irq14 ;46
+	dq cpuinit_isr_irq15 ;47
+	
+	;Next 16 - unused - 0x30...0x3F
+	times 16 dq cpuinit_isr_bad
+	
+	;Next 64 - unused - 0x40...0x7F
+	times 64 dq cpuinit_isr_bad
+	
+	;Next 127 - unused - 0x80...0xFE
+	times 127 dq cpuinit_isr_bad
+	
+	;Last interrupt - does nothing but brings the CPU out of halt (0xFF)
+	dq cpuinit_isr_woke
 
 ;Global descriptor table that we use once CPUs are set up.
 align 8
