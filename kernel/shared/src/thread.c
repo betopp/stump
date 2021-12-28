@@ -6,8 +6,11 @@
 #include "m_intr.h"
 #include "m_tls.h"
 #include "kassert.h"
+#include "kpage.h"
 #include <errno.h>
 #include <stddef.h>
+#include <string.h>
+#include <sys/wait.h>
 
 thread_t thread_table[THREAD_MAX];
 
@@ -52,6 +55,10 @@ int thread_new(process_t *process, uintptr_t entry, thread_t **thread_out)
 	
 	tptr->state = THREAD_STATE_SUSPEND;
 	tptr->process = process;
+	
+	//Threads start with all signals masked, so they don't catch them before they're ready.
+	tptr->sigmask = 0x7FFFFFFFFFFFFFFFul;
+	tptr->sigpend = 0;
 	
 	m_drop_reset(&(tptr->drop), entry);
 	
@@ -113,6 +120,111 @@ id_t thread_curtid(void)
 {
 	thread_t *tptr = m_tls_get();
 	return 	tptr->tid;
+}
+
+void thread_cleanup(thread_t *tptr)
+{
+	//Set aside process that contained the thread
+	pid_t oldpid = tptr->process->pid;
+	
+	//Clear thread structure
+	tptr->state = THREAD_STATE_NONE;
+	tptr->process = NULL;
+	memset(&(tptr->drop), 0, sizeof(tptr->drop));
+	memset(&(tptr->sigdrop), 0, sizeof(tptr->sigdrop));
+	tptr->sigmask = 0;
+	tptr->sigpend = 0;
+	tptr->unpauses = 0;
+	tptr->unpauses_req = 0;
+	thread_unlock(tptr);
+	
+	//Reduce the thread-count of the process that the thread was a part of.
+	process_t *pptr = process_lockpid(oldpid);
+	KASSERT(pptr != NULL);
+	
+	KASSERT(pptr->nthreads > 0);
+	pptr->nthreads--;
+	
+	//If the process has no threads, it's dead all the way
+	if(pptr->nthreads == 0)
+	{
+		//Track whether we're exiting while holding the console - give it back to PID1 if so.
+		bool hadcon = false;
+		
+		//Clean up the process.
+		m_uspc_activate(0);
+		mem_clear(&(pptr->mem));
+		mem_clear(&(pptr->mem_attempt));
+		
+		for(int ff = 0; ff < PROCESS_FD_MAX; ff++)
+		{
+			if(pptr->fds[ff].file != NULL)
+			{
+				file_lock(pptr->fds[ff].file);
+				pptr->fds[ff].file->refs--;
+				file_unlock(pptr->fds[ff].file);
+			}
+			memset(&(pptr->fds[ff]), 0, sizeof(pptr->fds[ff]));
+		}
+		
+		if(pptr->pwd != NULL)
+		{
+			file_lock(pptr->pwd);
+			pptr->pwd->refs--;
+			file_unlock(pptr->pwd);
+		}
+		pptr->pwd = NULL;
+		
+		hadcon = pptr->hascon;
+		pptr->hascon = false;
+		pptr->contid = 0;
+
+		if(pptr->fb.bufptr != NULL)
+			kpage_free(pptr->fb.bufptr, pptr->fb.buflen);
+		
+		memset(&(pptr->fb), 0, sizeof(pptr->fb));
+		
+		//Somebody should have called exit() on the process, rather than just killing all its threads.
+		//But, if all threads died and none wanted to kill the process, just exit with code 0.
+		if(pptr->wstatus == 0)
+			pptr->wstatus = _WIFEXITED_FLAG;
+		
+		//Process is now dead, and only exists to be waited-upon by its parent.
+		pptr->state = PROCESS_STATE_DEAD;
+		pid_t ppid = pptr->ppid;
+		process_unlock(pptr);
+		pptr = NULL;
+		
+		//Unpause all threads in the parent process, so one can wait on the now-dead child process
+		for(int tt = 0; tt < THREAD_MAX; tt++)
+		{
+			m_spl_acq(&(thread_table[tt].spl));
+			if(thread_table[tt].state != THREAD_STATE_NONE)
+			{
+				if(thread_table[tt].process->pid == ppid)
+				{
+					thread_table[tt].sigpend |= (1u << SIGCHLD);
+					thread_unpause(thread_table[tt].tid);
+				}
+			}
+			m_spl_rel(&(thread_table[tt].spl));
+		}
+		
+		//If the process with the console just died, the console returns to PID 1.
+		if(hadcon)
+		{
+			process_t *initpptr = process_lockpid(1);
+			KASSERT(initpptr != NULL);
+			initpptr->hascon = true;
+			thread_unpause(initpptr->contid);
+			process_unlock(initpptr);
+		}
+	}
+	else
+	{
+		//Process still has threads - don't clean it up yet.
+		process_unlock(pptr);
+	}
 }
 
 void thread_sched(void)

@@ -10,6 +10,7 @@
 #include "process.h"
 
 #include <sys/types.h>
+#include <sc.h>
 
 //State a thread can be in
 typedef enum thread_state_e
@@ -39,10 +40,12 @@ typedef struct thread_s
 	//Process containing the thread
 	process_t *process;
 	
+	
 	//User context
 	m_drop_t drop;
 	
-	//User context before signal was taken (i.e. interrupted context)
+	
+	//Context preserved when a signal is taken
 	m_drop_t sigdrop;
 	
 	//Signals blocked (1 = blocked)
@@ -51,14 +54,22 @@ typedef struct thread_s
 	//Signals pending (1 = pending)
 	int64_t sigpend;
 	
+	//Program counter to load on signal
+	uintptr_t sigpc;
+	
+	//Stack pointer to load on signal
+	uintptr_t sigsp;
+	
+	//Information about the thread just before a signal handler was entered
+	_sc_sig_info_t siginfo;
+	
+	
 	//Number of times the thread has been unpaused
 	m_atomic_t unpauses;
 	
 	//What value of "unpauses" is sufficient to continue executing the thread
 	m_atomic_t unpauses_req;
-	
-	//Last filesystem inode that the thread tried to operate on
-	ino_t waitino;
+
 	
 } thread_t;
 
@@ -89,6 +100,9 @@ void thread_unpause(id_t tid);
 
 //Returns the thread ID of the current thread.
 id_t thread_curtid(void);
+
+//Cleans up the given thread.
+void thread_cleanup(thread_t *thread);
 
 //Finds a runnable thread and runs it, waiting until one is runnable if necessary.
 //Does not return after running the thread.

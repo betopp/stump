@@ -17,8 +17,9 @@ typedef enum process_state_e
 {
 	PROCESS_STATE_NONE = 0,
 	
-	PROCESS_STATE_ALIVE,
-	PROCESS_STATE_DEAD,
+	PROCESS_STATE_ALIVE, //Process wants to continue, has threads
+	PROCESS_STATE_DETHREAD, //Some thread has caused process to exit, but others remain
+	PROCESS_STATE_DEAD, //All threads have exited, process can be waited upon
 	
 	PROCESS_STATE_MAX
 	

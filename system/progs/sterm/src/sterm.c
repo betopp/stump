@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <sys/wait.h>
 #include <sc.h>
 #include <sc_con.h>
 
@@ -506,6 +507,16 @@ int main(int argc, const char **argv, const char **envp)
 		{
 			errno = -flip_result;
 			perror("ioctl flip");
+			abort();
+		}
+		
+		//See if our shell died
+		int wait_status = 0;
+		pid_t wait_pid = waitpid(-1, &wait_status, WNOHANG);
+		if( (wait_pid == forkpid) && WIFEXITED(wait_status) )
+		{
+			//Shell died. Quit.
+			exit(WEXITSTATUS(wait_status));
 			abort();
 		}
 		

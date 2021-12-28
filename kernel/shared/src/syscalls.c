@@ -18,6 +18,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/resource.h>
 
 void k_sc_none(void)
 {
@@ -26,9 +27,26 @@ void k_sc_none(void)
 
 void k_sc_exit(int exitcode, int signal)
 {
-	(void)exitcode;
-	(void)signal;
-	KASSERT(0);
+	//Mark the process as wanting to exit, and store the exit status
+	process_t *pptr = process_lockcur();
+	if(pptr->state == PROCESS_STATE_DETHREAD)
+	{
+		//Some other thread already made our process quit.
+		process_unlock(pptr);
+		return;
+	}
+	
+	KASSERT(pptr->state == PROCESS_STATE_ALIVE);
+	pptr->state = PROCESS_STATE_DETHREAD;
+	if(signal)
+		pptr->wstatus = _WIFSIGNALED_FLAG | ((signal << _WTERMSIG_SHIFT) & _WTERMSIG_MASK);
+	else
+		pptr->wstatus = _WIFEXITED_FLAG | (exitcode & 0xFF);
+	
+	process_unlock(pptr);
+	
+	//When we try to return from the system call, we'll see that this thread belongs to a dethreading process.
+	//The thread will be removed and cleaned-up, and if it's the last one, so will the process.
 }
 
 int k_sc_panic(const char *str)
@@ -292,6 +310,10 @@ intptr_t k_sc_exec(int fd, char *const argv[], char *const envp[])
 	
 	//Reset the user context for the calling thread, to start at the new entry point
 	thread_t *tptr = thread_lockcur();
+	tptr->sigmask = 0x7FFFFFFFFFFFFFFFul;
+	tptr->sigpend = 0;
+	tptr->sigpc = 0;
+	tptr->sigsp = 0;
 	m_drop_reset(&(tptr->drop), elf_entry);
 	m_drop_retval(&(tptr->drop), argenv_addr);
 	thread_unlock(tptr);
@@ -659,99 +681,6 @@ int k_sc_ioctl(int fd, int operation, void *buf, ssize_t len)
 	return result;
 }
 
-int64_t k_sc_sigmask(int how, int64_t mask)
-{
-	thread_t *tptr = thread_lockcur();
-	int64_t retval = tptr->sigmask;
-	switch(how)
-	{
-		case SIG_BLOCK:
-		{
-			tptr->sigmask |= mask;
-			break;
-		}
-		case SIG_SETMASK:
-		{
-			tptr->sigmask = mask;
-			break;
-		}
-		case SIG_UNBLOCK:
-		{
-			tptr->sigmask &= ~mask;
-			break;
-		}
-		default:
-		{
-			thread_unlock(tptr);
-			return -EINVAL;
-		}
-	}
-	tptr->sigmask &= 0x7FFFFFFFFFFFFFFFul;
-	tptr->sigmask &= ~(1ul << SIGKILL);
-	tptr->sigmask &= ~(1ul << SIGSTOP);
-	thread_unlock(tptr);
-	KASSERT(retval >= 0);
-	return retval;
-}
-
-int k_sc_sigsend(int idtype, int id, int sig)
-{
-	if(sig < 0 || sig >= 63)
-		return -EINVAL;
-	
-	bool any_signal = false;
-	for(int tt = 0; tt < THREAD_MAX; tt++)
-	{
-		thread_t *tptr = &(thread_table[tt]);
-		m_spl_acq(&(tptr->spl));
-		
-		if(tptr->state == THREAD_STATE_NONE)
-		{
-			//No thread here
-			m_spl_rel(&(tptr->spl));
-			continue;
-		}
-		
-		bool id_match = false;
-		switch(idtype)
-		{
-			case P_PID: id_match = (tptr->process->pid == id); break;
-			case P_PGID: id_match = (tptr->process->pgid == id); break;
-			case P_TID: id_match = (tptr->tid == id); break;
-			case P_ALL: id_match = true; break;
-			default: m_spl_rel(&(tptr->spl)); return -EINVAL;
-		}
-		
-		if(!id_match)
-		{
-			//Not a thread we're looking for
-			m_spl_rel(&(tptr->spl));
-			continue;
-		}
-		
-		//Okay, this is a thread we want to signal. We'll consider this a success.
-		any_signal = true;
-		tptr->sigpend |= (1ul << sig);
-		thread_unpause(tptr->tid);
-		
-		m_spl_rel(&(tptr->spl));
-		
-		//PID and TID options signal a single thread; others signal multiple.
-		if(idtype == P_PID || idtype == P_TID)
-			break;
-	}
-	
-	return any_signal ? 0 : -ESRCH;
-}
-
-ssize_t k_sc_siginfo(_sc_siginfo_t *buf_ptr, ssize_t buf_len)
-{
-	(void)buf_ptr;
-	(void)buf_len;
-	KASSERT(0);
-	return -ENOSYS;
-}
-
 int k_sc_nanosleep(int64_t nsec)
 {
 	(void)nsec;
@@ -761,11 +690,23 @@ int k_sc_nanosleep(int64_t nsec)
 
 int k_sc_rusage(int who, _sc_rusage_t *buf, ssize_t len)
 {
-	(void)who;
-	(void)buf;
-	(void)len;
-	KASSERT(0);
-	return -ENOSYS;
+	if(who != RUSAGE_THREAD && who != RUSAGE_SELF && who != RUSAGE_CHILDREN)
+		return -EINVAL;
+	
+	if(len < 1)
+		return -EINVAL;
+	
+	if(len > (ssize_t)sizeof(_sc_rusage_t))
+		len = sizeof(_sc_rusage_t);
+	
+	_sc_rusage_t rusage = {0};
+	//Todo - fill in
+	
+	int copy_err = process_memput(buf, &rusage, len);
+	if(copy_err < 0)
+		return copy_err;
+	
+	return len;
 }
 
 intptr_t k_sc_mem_avail(intptr_t around, ssize_t size)

@@ -33,6 +33,9 @@ void m_drop_reset(m_drop_t *drop, uintptr_t entry);
 //Changes the return-value stored in the given user context.
 void m_drop_retval(m_drop_t *drop, uintptr_t retval);
 
+//Changes program counter and stack-pointer in the given user context, for taking a signal
+void m_drop_signal(m_drop_t *drop, uintptr_t pc, uintptr_t sp);
+
 //Drops to userspace using the given context.
 void m_drop(const m_drop_t *drop) __attribute__((noreturn));
 

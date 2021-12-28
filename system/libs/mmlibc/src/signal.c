@@ -130,11 +130,11 @@ int sigprocmask(int how, const sigset_t *set, sigset_t *oset)
 	int64_t result;
 	if(set != NULL)
 	{
-		result = _sc_sigmask(how, set->blockedbits);
+		result = _sc_sig_mask(how, set->blockedbits);
 	}
 	else
 	{
-		result = _sc_sigmask(SIG_BLOCK, 0);
+		result = _sc_sig_mask(SIG_BLOCK, 0);
 	}
 
 	if(result < 0)
@@ -156,9 +156,9 @@ int sigsuspend(const sigset_t *sigmask)
 	//Callers already use this like we use _sc_pause - in a loop checking for a condition.
 	//So briefly change the signal mask, calling pause once inbetween.
 	//If the signal happens upon masking, or during pausing, we return either way.
-	int64_t oldmask = _sc_sigmask(SIG_SETMASK, sigmask->blockedbits);
+	int64_t oldmask = _sc_sig_mask(SIG_SETMASK, sigmask->blockedbits);
 	_sc_pause();
-	_sc_sigmask(SIG_SETMASK, oldmask);
+	_sc_sig_mask(SIG_SETMASK, oldmask);
 	
 	//We might have unpaused for any number of reasons.
 	//Can a caller actually determine when no signal occurred?
@@ -171,11 +171,11 @@ int kill(pid_t pid, int sig)
 {
 	int result = -EINVAL;
 	if(pid == -1)
-		result = _sc_sigsend(P_ALL, 0, sig);
+		result = _sc_sig_send(P_ALL, 0, sig);
 	else if(pid == 0)
-		result = _sc_sigsend(P_PGID, getpgrp(), sig);
+		result = _sc_sig_send(P_PGID, getpgrp(), sig);
 	else if(pid > 0)
-		result = _sc_sigsend(P_PID, pid, sig);
+		result = _sc_sig_send(P_PID, pid, sig);
 	
 	if(result < 0)
 	{
@@ -188,7 +188,7 @@ int kill(pid_t pid, int sig)
 
 int killpg(pid_t pgrp, int sig)
 {
-	int result = _sc_sigsend(P_PGID, pgrp, sig);
+	int result = _sc_sig_send(P_PGID, pgrp, sig);
 	if(result < 0)
 	{
 		errno = -result;
@@ -220,7 +220,7 @@ sig_t signal(int sig, sig_t func)
 
 int raise(int sig)
 {
-	int err = _sc_sigsend(P_PID, getpid(), sig);
+	int err = _sc_sig_send(P_PID, getpid(), sig);
 	if(err < 0)
 	{
 		errno = -err;
@@ -290,11 +290,11 @@ void _libc_signalled_ign(int signum)
 }
 
 //Entry point when signalled - called by crt0
-void _libc_signalled(uintptr_t *oldpc_out, uintptr_t *oldsp_out)
+void _libc_signalled(void)
 {
 	//Figure out what signal we got
-	_sc_siginfo_t siginfo = {0};
-	ssize_t info_sz = _sc_siginfo(&siginfo, sizeof(siginfo));
+	_sc_sig_info_t siginfo = {0};
+	ssize_t info_sz = _sc_sig_info(&siginfo, sizeof(siginfo));
 	assert(info_sz > 0);
 	
 	//Call the appropriate handler
@@ -324,7 +324,5 @@ void _libc_signalled(uintptr_t *oldpc_out, uintptr_t *oldsp_out)
 	}
 	
 	//crt0 will return from the signal
-	*oldpc_out = siginfo.pc;
-	*oldsp_out = siginfo.sp;
 	return;
 }

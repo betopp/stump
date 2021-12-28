@@ -10,20 +10,29 @@ align 16
 global _crt_entry
 _crt_entry:
 
-	;RAX points to our argv/envp pointers.
-	;Load those up for the call to libc entry.
+	;Set up TLS and stack for initial thread
+	mov RCX, _crt_tls0
+	wrgsbase RCX
+	
+	mov RSP, _crt_stack.top
+	
+	;RAX points to our argv/envp pointers. Preserve it.
+	mov RBX, RAX
+	
+	;Set signal entry/stack for initial thread
+	extern _sc_sig_entry
+	mov RDI, _crt_sigentry
+	mov RSI, _crt_sigstack.top
+	call _sc_sig_entry
+	
+	;Restore arg/env pointers and load them up as parameters to entry.
+	mov RAX, RBX
 	cmp RAX, 0
 	je .after_args
 	mov RDI, 0 ;Let libc entry count them
 	mov RSI, [RAX]
 	mov RDX, [RAX + 8]
 	.after_args:
-
-	;Set up TLS and stack for initial thread
-	mov RAX, _crt_tls0
-	wrgsbase RAX
-	
-	mov RSP, _crt_stack.top
 	
 	;Call libc which will call main and then exit
 	extern _libc_entry
@@ -36,19 +45,16 @@ _crt_entry:
 	
 	
 ;Entry for signal handler
-_crt_entry_signal:
-
-	;Avoid clobbering red-zone of old stack, in case this signal was unexpected.
-	sub ESP, 128
-
+_crt_sigentry:
+	
 	;Handle signal
 	extern _libc_signalled
 	call _libc_signalled
-	
-	;libc_signalled should ask the kernel to return to the signalled context
-	hlt
-	.spin:
-	jmp .spin
+
+	;Return to context saved by the kernel
+	extern _sc_sig_return
+	call _sc_sig_return
+
 	
 ;System call handlers.
 ;Each requires one more parameter than the parameters to the call (i.e. which call are we running).
@@ -144,10 +150,10 @@ sigsetjmp:
 	je .nosigs	
 		push RDI ;Preserve across call to _sc_sigmask
 		
-		extern _sc_sigmask ;System call to alter/get signal mask
+		extern _sc_sig_mask ;System call to alter/get signal mask
 		mov RDI, 0 ;SIG_BLOCK - but we're passing a mask of zeroes, so nothing is blocked
 		mov RSI, 0 ;Block nothing
-		call _sc_sigmask
+		call _sc_sig_mask
 		
 		pop RDI
 	.nosigs:
@@ -170,10 +176,10 @@ siglongjmp:
 		push RDI ;Preserve across call to _sc_sigmask
 		push RSI
 		
-		extern _sc_sigmask ;System call to alter/get signal mask
+		extern _sc_sig_mask ;System call to alter/get signal mask
 		mov RSI, [RDI + 8] ;Mask preserved in env[1]
 		mov RDI, 2 ;SIG_SETMASK
-		call _sc_sigmask
+		call _sc_sig_mask
 		
 		pop RSI
 		pop RDI
@@ -220,6 +226,11 @@ _crt_stack:
 	resb 4096 * 4
 	.top:	
 
+;Space for signal-handling stack
+alignb 4096
+_crt_sigstack:
+	resb 4096 * 4
+	.top:
 	
 bits 64
 section .data

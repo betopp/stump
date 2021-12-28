@@ -1,5 +1,5 @@
 //sc.h
-//System call library
+//System call library - main header (i.e. please split this apart)
 //Bryan E. Topp <betopp@betopp.com> 2021
 #ifndef _SC_H
 #define _SC_H
@@ -10,6 +10,11 @@
 
 #include <sc_con.h>
 #include <sc_mem.h>
+#include <sc_sig.h>
+
+//Waits until anything happens to the calling thread, or has happened since the last call returned.
+//This is the only way to actually "block" your thread at the kernel level.
+void _sc_pause(void);
 
 //Does nothing.
 void _sc_none(void);
@@ -129,39 +134,6 @@ ssize_t _sc_stat(int fd, _sc_stat_t *buf, ssize_t len);
 //Performs device-specific IO operations on a file descriptor.
 int _sc_ioctl(int fd, int operation, void *buf, ssize_t len);
 
-//Alters the signal mask of the calling process. Returns the old mask.
-int64_t _sc_sigmask(int how, int64_t mask);
-
-//Sends a signal.
-int _sc_sigsend(int idtype, int id, int sig);
-
-//Information about why and where a signal handler was executed.
-typedef struct _sc_siginfo_s
-{
-	//Signal number that was received
-	int signum;
-	
-	//Address of fault, if any
-	uintptr_t fault;
-	
-	//Sender of signal, if any
-	pid_t pid;
-	
-	//Signal mask at the time the signal was taken.
-	//When a handler is executed, the signal mask is set to ~0, so the process can safely enter/exit the handler.
-	uint64_t mask;
-	
-	//Program counter of interrupted context
-	uintptr_t pc;
-	
-	//Stack pointer of interrupted context
-	uintptr_t sp;
-	
-} _sc_siginfo_t;
-
-//Returns information about why the latest signal handler was executed.
-ssize_t _sc_siginfo(_sc_siginfo_t *buf_ptr, ssize_t buf_len);
-
 //Sleeps for the given number of nanoseconds.
 int _sc_nanosleep(int64_t nsec);
 
@@ -193,7 +165,5 @@ int _sc_priority(int idtype, int id, int priority);
 //Returns real-time clock value, in microseconds of the GPS epoch.
 int64_t _sc_getrtc(void);
 
-//Waits until anything happens to the calling thread, or has happened since the last call returned.
-void _sc_pause(void);
 
 #endif //_SC_H

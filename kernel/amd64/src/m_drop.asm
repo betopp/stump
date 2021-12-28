@@ -105,6 +105,12 @@ m_drop_retval:
 	mov [RDI + M_DROP_OFF_RAX], RSI
 	ret
 
+global m_drop_signal ;void m_drop_signal(m_drop_t *drop, uintptr_t pc, uintptr_t sp);
+m_drop_signal:
+	mov [RDI + M_DROP_OFF_RIP], RSI
+	mov [RDI + M_DROP_OFF_RSP], RDX
+	ret
+
 global m_drop ;void m_drop(const m_drop_t *drop);
 m_drop:
 
