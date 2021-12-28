@@ -25,6 +25,7 @@ CFLAGS += -std=c99 -Wall -Werror -Wextra -pedantic -Wshadow
 CFLAGS += -nostdlib -nostdinc
 CFLAGS += -I$(L)/mmlibc/include
 CFLAGS += -I$(L)/libsc/include
+CFLAGS += -I$(L)/pcmd/include
 CFLAGS += -g -mno-sse
 CFLAGS += -ffunction-sections
 CFLAGS += -fdata-sections
@@ -46,7 +47,7 @@ LDFLAGS += -z max-page-size=0x1000
 #Standard compiler invocations
 PRELINK = $(O)/crt0.o $(O)/crti.o
 POSTLINK = $(O)/crtn.o
-STDLIBS = $(A)/mmlibc.a $(A)/libsc.a /usr/lib/libgcc.a
+STDLIBS = $(A)/pcmd.a $(A)/mmlibc.a $(A)/libsc.a /usr/lib/libgcc.a
 
 CC_ELF = mkdir -p $(@D) && $(CC) $(LDFLAGS) $^ -o $@
 CC_OBJ = mkdir -p $(@D) && $(CC) $(CFLAGS) -c $< -o $@ -MMD
