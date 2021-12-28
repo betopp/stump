@@ -205,6 +205,14 @@ static void newline(void)
 //Outputs a character to the console.
 static void coutc(int ch)
 {
+	//Unpaint old cursor before changing things
+	glyph( 
+		((txt_cols + curs_col - scroll_col) % win_cols) * confont_chx, 
+		((txt_rows + curs_row - scroll_row) % win_rows) * confont_chy, 
+		txt_ptrs[curs_row][curs_col]
+	);
+
+	
 	if(ch == '\n')
 	{
 		newline();
@@ -499,6 +507,13 @@ int main(int argc, const char **argv, const char **envp)
 			{
 				coutc(from_shell_buf[cc]);
 			}
+			
+			//Paint cursor
+			glyph( 
+				((txt_cols + curs_col - scroll_col) % win_cols) * confont_chx, 
+				((txt_rows + curs_row - scroll_row) % win_rows) * confont_chy, 
+				'_'
+			);
 		}
 
 		//Update the framebuffer as drawn

@@ -102,7 +102,7 @@ int pipe_new(pipe_t **pipe_out)
 				//Make sure the pipe has a valid ID that maps to its location in the table.
 				//Advance IDs each time we use a slot.
 				pptr->id += PIPE_MAX;
-				if( (pptr->id <= 0) && ((pptr->id % PIPE_MAX) != pp) )
+				if( (pptr->id <= 0) || ((pptr->id % PIPE_MAX) != pp) )
 					pptr->id = pp;
 	
 				break;
