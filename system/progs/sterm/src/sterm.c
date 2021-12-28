@@ -241,8 +241,8 @@ static void coutc(int ch)
 	//Store into the buffer and paint this one character.
 	txt_ptrs[curs_row][curs_col] = ch;
 	glyph( 
-		((win_cols + curs_col - scroll_col) % win_cols) * confont_chx, 
-		((win_rows + curs_row - scroll_row) % win_rows) * confont_chy, 
+		((txt_cols + curs_col - scroll_col) % win_cols) * confont_chx, 
+		((txt_rows + curs_row - scroll_row) % win_rows) * confont_chy, 
 		ch
 	);
 	

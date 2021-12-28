@@ -26,6 +26,22 @@ void pspace_write(uint64_t addr, uint64_t data)
 	*((volatile uint64_t*)(PSPACE_BASE + addr)) = data;
 }
 
+uint32_t pspace_read32(uint64_t addr)
+{
+	if(addr > PSPACE_SIZE)
+		m_panic("pspace_read bad addr");
+	
+	return *((volatile uint32_t*)(PSPACE_BASE + addr));
+}
+
+void pspace_write32(uint64_t addr, uint32_t data)
+{
+	if(addr > PSPACE_SIZE)
+		m_panic("pspace_write bad addr");
+	
+	*((volatile uint32_t*)(PSPACE_BASE + addr)) = data;
+}
+
 void pspace_clrframe(uint64_t addr)
 {
 	if(addr > PSPACE_SIZE)

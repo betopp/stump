@@ -60,7 +60,7 @@ _sc0:
 	
 global _sc1
 _sc1:
-	syscall
+	syscall	
 	ret
 	
 global _sc2

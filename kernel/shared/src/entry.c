@@ -11,6 +11,7 @@
 #include "con.h"
 #include "syscalls.h"
 #include "m_panic.h"
+#include "kassert.h"
 #include <string.h>
 
 //Entered once on bootstrap core. Should set up kernel and return.
@@ -42,6 +43,7 @@ uintptr_t entry_syscall(uintptr_t num, uintptr_t p1, uintptr_t p2, uintptr_t p3,
 {
 	//Save context in thread that was running
 	thread_t *tptr = thread_lockcur();
+	KASSERT(tptr->state == THREAD_STATE_RUN);
 	m_drop_copy(&(tptr->drop), drop);
 	//Todo - do we move the thread to a different state? state_kernel or something?
 	thread_unlock(tptr);

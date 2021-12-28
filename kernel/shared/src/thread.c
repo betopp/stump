@@ -160,6 +160,7 @@ void thread_sched(void)
 		
 		//Mark the thread as running, and resume its userspace.
 		//(Assume nobody's messing with this, if the thread is marked "running", even though we release the lock)
+		KASSERT(tptr->state == THREAD_STATE_SUSPEND);
 		tptr->state = THREAD_STATE_RUN;
 		thread_unlock(tptr);
 		

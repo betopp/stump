@@ -17,18 +17,20 @@ static pipe_t pipe_table[PIPE_MAX];
 //Puts the current thread on the list of waiters. Unpauses one to take its place if necessary.
 static void pipe_addwaiter(id_t waiters[])
 {
+	id_t curtid = thread_curtid();
+	
 	for(int ww = 0; ww < PIPE_WAITING_MAX; ww++)
 	{
-		if(waiters[ww] == 0)
+		if(waiters[ww] == 0 || waiters[ww] == curtid)
 		{
-			waiters[ww] = thread_curtid();
+			waiters[ww] = curtid;
 			return;
 		}
 	}
 	
 	//Ugly but technically correct. They'll waste some CPU cycles and re-pause. It'll thrash.
 	thread_unpause(waiters[0]);
-	waiters[0] = thread_curtid();
+	waiters[0] = curtid;
 	return;
 }
 

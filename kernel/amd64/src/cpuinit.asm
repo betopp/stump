@@ -163,6 +163,19 @@ cpuinit_entry:
 cpuinit_entry_all:
 
 	;All cores run through this path.
+	
+	;Enable APIC Software Enable bit
+	mov ECX, 0x1B ;APIC BAR MSR
+	rdmsr
+	and EAX, 0xFFFFF000
+	mov ECX, [EAX + 0xF0] ;Spurious Interrupt Register
+	or ECX, 1<<8 ;APIC Software Enable
+	or ECX, 0xFF ;Vector 0xFF for spurious interrupts
+	mov [EAX + 0xF0], ECX
+	
+	;Send EOI to APIC initially
+	mov ECX, 0
+	mov [EAX + 0xB0], ECX
 
 	;Turn on PAE (8-byte pagetable entries) and FSGSBASE (rdgsbase/wrgsbase instructions)
 	mov EAX, CR4
@@ -220,6 +233,8 @@ cpuinit_entry_all:
 	mov SS, AX
 	mov DS, AX
 	mov ES, AX
+	
+	mov AX, cpuinit_gdt.r3data64 - cpuinit_gdt
 	mov FS, AX
 	mov GS, AX
 	
@@ -766,7 +781,16 @@ cpuinit_isr_irq15:
 
 ;ISR - does nothing but returns, to take the CPU out of halt.
 cpuinit_isr_woke:
-	iret
+	;APIC EOI
+	push RAX
+	mov RAX, 0xFFFFFF0000000000 + 0xFEE00000 + 0xB0
+	mov [RAX], dword 0
+	pop RAX
+	iretq
+	
+;ISR - spurious interrupts
+cpuinit_isr_spurious:
+	iretq
 	
 section .data
 bits 64
@@ -832,11 +856,14 @@ cpuinit_isrptrs:
 	;Next 64 - unused - 0x40...0x7F
 	times 64 dq cpuinit_isr_bad
 	
-	;Next 127 - unused - 0x80...0xFE
-	times 127 dq cpuinit_isr_bad
+	;Next 126 - unused - 0x80...0xFD
+	times 126 dq cpuinit_isr_bad
 	
-	;Last interrupt - does nothing but brings the CPU out of halt (0xFF)
+	;Wakeup - does nothing but brings the CPU out of halt (0xFE)
 	dq cpuinit_isr_woke
+	
+	;Spurious interrupt (0xFF)
+	dq cpuinit_isr_spurious
 
 ;Global descriptor table that we use once CPUs are set up.
 align 8
