@@ -223,13 +223,13 @@ section .bss
 ;Space for stack
 alignb 4096
 _crt_stack:
-	resb 4096 * 4
+	resb 4096 * 8
 	.top:	
 
 ;Space for signal-handling stack
 alignb 4096
 _crt_sigstack:
-	resb 4096 * 4
+	resb 4096 * 8
 	.top:
 	
 bits 64

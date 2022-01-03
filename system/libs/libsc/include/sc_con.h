@@ -13,10 +13,14 @@ typedef struct _sc_con_init_s
 	//Console flags (unused for now)
 	int    flags;
 	
-	//Framebuffer config
+	//Framebuffer geometry in memory
 	int    fb_width;
 	int    fb_height;
 	size_t fb_stride;
+	
+	//Display aspect ratio (set both to 0 for "I don't care")
+	int    ar_numer;
+	int    ar_denom;
 	
 } _sc_con_init_t;
 

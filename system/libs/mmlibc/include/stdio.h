@@ -122,6 +122,7 @@ struct _FILE_s
 	int buf_out; //Whether the buffer is waiting to be read (0) or written (1)
 	
 	int buf_mode; //Buffer mode requested
+	int buf_ext; //Whether we don't free the buffer
 	
 	int error; //Error indicator
 	int eof; //End-of-file indicator

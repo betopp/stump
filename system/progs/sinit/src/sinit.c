@@ -9,6 +9,8 @@
 #include <sys/wait.h>
 #include <sc.h>
 
+extern char **environ;
+
 int main(int argc, const char **argv, const char **envp)
 {
 	//Todo - could use this to pass the kernel commandline or something
@@ -51,6 +53,9 @@ int main(int argc, const char **argv, const char **envp)
 		abort();
 	}
 	
+	//Set some environment variables
+	setenv("HOME", "/", 0);
+	
 	//Keep terminal emulator spawned and active on the console
 	pid_t term_pid = 0;
 	while(1)
@@ -69,7 +74,7 @@ int main(int argc, const char **argv, const char **envp)
 			if(forkpid == 0)
 			{
 				//Child - execute terminal emulator
-				int exec_err = fexecve(term_fd, (char*[]){"sterm", NULL}, (char**)envp);
+				int exec_err = fexecve(term_fd, (char*[]){"sterm", NULL}, environ);
 				(void)exec_err; //Must be error if fexecve returns.
 				_Exit(-1);
 			}

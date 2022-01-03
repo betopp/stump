@@ -9,8 +9,14 @@
 #include <limits.h>
 
 //Implementation of string-to-number parsing
-long long _strtoll_internal(const char *s, char **end, int base, bool *overflow_out, bool *negative_out)
+unsigned long long _strtoull_internal(const char *s, char **end, int base, bool *overflow_out, bool *negative_out)
 {	
+	if( (base < 2 || base > 36) && (base != 0) )
+	{
+		errno = EINVAL;
+		return 0;
+	}
+	
 	//In cases where nothing is converted, we need to return the original string.
 	const char *s_orig = s;
 	
@@ -21,15 +27,14 @@ long long _strtoll_internal(const char *s, char **end, int base, bool *overflow_
 	}
 	
 	//Consume + or - if present
-	long long sign = 1;
 	if(*s == '+')
 	{
-		sign = 1;
+		*negative_out = false;
 		s++;
 	}
 	else if(*s == '-')
 	{
-		sign = -1;
+		*negative_out = true;
 		s++;
 	}
 	
@@ -58,7 +63,7 @@ long long _strtoll_internal(const char *s, char **end, int base, bool *overflow_
 		base = 10;
 	
 	//Convert digits until a nonvalid digit is found
-	long long retval = 0;
+	unsigned long long retval = 0;
 	bool overflow = false;
 	bool any_digits = false;
 	while(1)
@@ -83,22 +88,12 @@ long long _strtoll_internal(const char *s, char **end, int base, bool *overflow_
 		}
 		
 		//This is a numeral in our base. Add to the conversion.
-		long long old_retval = retval;
-		if(sign > 0)
-		{
-			retval *= base;
-			retval += next_val;
-			if(retval < old_retval) //Should never get smaller as we multiply by a positive and add
-				overflow = true;
-		}
-		else
-		{
-			retval *= base;
-			retval -= next_val;
-			if(retval > old_retval) //Should never get bigger as we multiply by a positive and subtract
-				overflow = true;
-		}
-		
+		unsigned long long old_retval = retval;
+		retval *= base;
+		retval += next_val;
+		if(retval < old_retval) //Should never get smaller as we multiply by a positive and add
+			overflow = true;
+
 		//Keep converting more characters
 		any_digits = true;
 		s++;
@@ -118,21 +113,14 @@ long long _strtoll_internal(const char *s, char **end, int base, bool *overflow_
 
 	//Output whether we overflowed or not, and return the final (possibly overflowed) value.
 	*overflow_out = overflow;
-	*negative_out = (sign < 0);
 	return retval;
 }
 
 long strtol(const char *s, char **end, int base)
 {
-	if( (base < 2 || base > 36) && (base != 0) )
-	{
-		errno = EINVAL;
-		return 0;
-	}
-	
 	bool overflow = false;
 	bool negative = false;
-	long long result = _strtoll_internal(s, end, base, &overflow, &negative);
+	unsigned long long result = _strtoull_internal(s, end, base, &overflow, &negative);
 	if(overflow)
 	{
 		errno = ERANGE;
@@ -142,31 +130,64 @@ long strtol(const char *s, char **end, int base)
 			return LONG_MAX;
 	}
 	
-	if(result > LONG_MAX)
+	if(negative)
 	{
-		errno = ERANGE;
-		result = LONG_MAX;
+		long signed_result = -result;
+		if((unsigned long long)(signed_result * -1) != result)
+		{
+			errno = ERANGE;
+			return LONG_MIN;
+		}
+		return signed_result;
 	}
-	if(result < LONG_MIN)
+	else
+	{
+		long signed_result = result;
+		if((unsigned long long)signed_result != result)
+		{
+			errno = ERANGE;
+			return LONG_MAX;
+		}
+		return signed_result;
+	}
+}
+
+unsigned long strtoul(const char *s, char **end, int base)
+{
+	bool overflow = false;
+	bool negative = false;
+	unsigned long long result = _strtoull_internal(s, end, base, &overflow, &negative);
+	if(overflow)
 	{
 		errno = ERANGE;
-		result = LONG_MIN;
+		if(negative)
+			return 0;
+		else
+			return ULONG_MAX;
 	}
 	
-	return result;
+	if(negative)
+	{
+		errno = ERANGE;
+		return 0;
+	}
+	else
+	{
+		unsigned long trunc_result = result;
+		if((unsigned long long)trunc_result != result)
+		{
+			errno = ERANGE;
+			return ULONG_MAX;
+		}
+		return trunc_result;
+	}
 }
 
 long long strtoll(const char *s, char **end, int base)
-{
-	if( (base < 2 || base > 36) && (base != 0) )
-	{
-		errno = EINVAL;
-		return 0;
-	}
-	
+{	
 	bool overflow = false;
 	bool negative = false;
-	long long result = _strtoll_internal(s, end, base, &overflow, &negative);
+	unsigned long long result = _strtoull_internal(s, end, base, &overflow, &negative);
 	if(overflow)
 	{
 		errno = ERANGE;
@@ -175,7 +196,27 @@ long long strtoll(const char *s, char **end, int base)
 		else
 			return LLONG_MAX;
 	}
-	return result;
+	
+	if(negative)
+	{
+		long long signed_result = -result;
+		if((unsigned long long)(signed_result * -1) != result)
+		{
+			errno = ERANGE;
+			return LLONG_MIN;
+		}
+		return signed_result;
+	}
+	else
+	{
+		long long signed_result = result;
+		if((unsigned long long)signed_result != result)
+		{
+			errno = ERANGE;
+			return LLONG_MAX;
+		}
+		return signed_result;
+	}
 }
 
 long atol(const char *s)

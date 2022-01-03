@@ -13,6 +13,7 @@
 #include "file.h"
 #include "pipe.h"
 #include "elf64.h"
+#include "m_time.h"
 #include "con.h"
 #include <errno.h>
 #include <string.h>
@@ -887,8 +888,8 @@ int k_sc_priority(int idtype, int id, int priority)
 
 int64_t k_sc_getrtc(void)
 {
-	KASSERT(0);
-	return -ENOSYS;
+	//temp
+	return m_time_tsc() / 4096;
 }
 
 void k_sc_pause(void)

@@ -221,8 +221,8 @@ void free(void *addr)
 	
 	//Find the bookkeeping that precedes the user's pointer, to learn the size of the allocation.
 	_malloc_used_item_t *item_ptr = _malloc_item_for_userptr(addr);
-	assert(item_ptr->size >= sizeof(_malloc_used_item_t));
 	assert(item_ptr->magic == MALLOC_USED_MAGIC);
+	assert(item_ptr->size >= sizeof(_malloc_used_item_t));
 	size_t freeing_size = item_ptr->size;
 	uintptr_t freeing_addr = (uintptr_t)(item_ptr);
 	
@@ -240,6 +240,7 @@ void free(void *addr)
 	
 	//We may have freed a region that is adjacent to another free region.
 	//Coalesce free regions that are adjacent in memory, representing a larger region that is all free.
+	/*
 	while(1)
 	{
 		//See if the freed range has a previous range that touches it.
@@ -304,7 +305,7 @@ void free(void *addr)
 		
 		//If we weren't able to coalesce any regions, stop looking.
 		break;
-	}
+	}*/
 	
 	_malloc_unlock();
 }

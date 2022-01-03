@@ -6,6 +6,6 @@
 
 #define LLONG_MAX (__LONG_LONG_MAX__)
 #define LLONG_MIN (-__LONG_LONG_MAX__-1)
-#define ULLONG_MAX (__ULONG_LONG_MAX__)
+#define ULLONG_MAX (18446744073709551615ULL) //GCC doesn't give us this?
 
 #endif //_LIMITS_LLONG_H

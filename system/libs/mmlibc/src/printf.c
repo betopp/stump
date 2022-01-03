@@ -562,6 +562,7 @@ int sprintf(char *str, const char *format, ...)
 	va_list args;
 	va_start(args, format);
 	int retval = vsprintf(str, format, args);
+	str[retval] = '\0';
 	va_end(args);
 	return retval;
 }
@@ -572,6 +573,9 @@ int snprintf(char *str, size_t size, const char *format, ...)
 	va_list args;
 	va_start(args, format);
 	int retval = vsnprintf(str, size, format, args);
+	if(retval >= 0 && (size_t)retval < size)
+		str[retval] = '\0';
+	
 	va_end(args);
 	return retval;
 }

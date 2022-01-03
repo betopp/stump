@@ -87,6 +87,7 @@ int nice(int incr);
 long pathconf(const char *path, int name);
 int pause(void);
 int pipe(int fd[2]);
+int pipe2(int fd[2], int flags);
 ssize_t pread(int, void *, size_t, off_t);
 ssize_t pwrite(int, const void *, size_t, off_t);
 ssize_t read(int fd, void *buf, size_t count);

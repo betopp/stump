@@ -138,6 +138,7 @@ m_drop:
 	
 	;RFLAGS
 	mov RAX, [RDI + M_DROP_OFF_FLG]
+	or RAX, 1<<9 ;IF
 	push RAX
 	
 	;CS

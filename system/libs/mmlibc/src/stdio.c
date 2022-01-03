@@ -25,6 +25,7 @@ FILE _stdin_storage = {
 	.buf_size = sizeof(_stdin_buffer),
 	.buf_out = 0,
 	.buf_mode = _IOLBF,
+	.buf_ext = 1,
 };
 
 FILE _stdout_storage = {
@@ -35,6 +36,7 @@ FILE _stdout_storage = {
 	.buf_size = sizeof(_stdout_buffer),
 	.buf_out = 1,
 	.buf_mode = _IOLBF,
+	.buf_ext = 1,
 };
 
 FILE _stderr_storage = {
@@ -45,6 +47,7 @@ FILE _stderr_storage = {
 	.buf_size = sizeof(_stderr_buffer),
 	.buf_out = 1,
 	.buf_mode = _IOLBF,
+	.buf_ext = 1,
 };
 
 //Converts a mode string (e.g. from fopen) to flags that we can pass to open().
@@ -287,6 +290,29 @@ static int _fputc_strn(int c, FILE *stream)
 	return c;
 }
 
+long ftell(FILE *stream)
+{
+	long fd_pos = 0;
+	if(stream->streamtype == _FILE_STREAMTYPE_RAWFD || stream->streamtype == _FILE_STREAMTYPE_BUFFD)
+	{
+		fd_pos = lseek(stream->fd, 0, SEEK_CUR);
+		if(fd_pos < 0)
+		{
+			stream->error = 1;
+			errno = -fd_pos;
+			return -1;
+		}
+	}
+	
+	long buf_off = 0;
+	if(stream->buf_out)
+		buf_off = stream->buf_wpos - stream->buf_rpos; //User has written bytes, ahead of FD's position
+	else
+		buf_off = -(stream->buf_wpos - stream->buf_rpos); //FD was read for the user in advance
+	
+	return fd_pos + buf_off;
+}
+
 int fflush(FILE *stream)
 {
 	if(stream->streamtype != _FILE_STREAMTYPE_BUFFD)
@@ -318,6 +344,48 @@ int fflush(FILE *stream)
 	stream->buf_rpos = 0;
 	stream->buf_wpos = 0;
 	return 0;
+}
+
+
+int setvbuf(FILE *stream, char *buf, int mode, size_t size)
+{
+	//Validate buffer mode
+	if(mode != _IONBF && mode != _IOLBF && mode != _IOFBF)
+	{
+		errno = EINVAL;
+		return EOF;
+	}
+	
+	//If they asked for a nonzero buffer size and didn't provde the buffer, we allocate it.
+	//(The caller is being nonstandard but this is how FreeBSD works.)
+	int alloc_here = 0;
+	if(buf == NULL && size > 0)
+	{
+		buf = malloc(size);
+		if(buf == NULL)
+			return EOF;
+		
+		alloc_here = 1;
+	}
+	
+	if(stream->buf_ptr && !(stream->buf_ext))
+		free(stream->buf_ptr);
+	
+	stream->buf_ptr = buf;
+	stream->buf_size = size;
+	stream->buf_rpos = 0;
+	stream->buf_wpos = 0;
+	
+	stream->buf_mode = mode;
+	stream->buf_ext = !alloc_here;
+	
+	return 0;
+}
+
+void setbuf(FILE *stream, char *buf)
+{
+	//Definition from the FreeBSD manual
+	setvbuf(stream, buf, buf ? _IOFBF : _IONBF, BUFSIZ);
 }
 
 //Implementation of fseek - for normal, buffered-file-descripor streams.
@@ -370,10 +438,25 @@ static int _fseeko_strn(FILE *stream, off_t offset, int whence)
 	return stream->buf_rpos;
 }
 
-
+int ungetc(int ch, FILE *stream)
+{
+	if(ch == EOF)
+		return EOF;
+	
+	stream->ungetc_present = 1;
+	stream->ungetc_value = ch;
+	stream->eof = 0;
+	return ch;
+}
 
 int fgetc(FILE *stream)
 {	
+	if(stream->ungetc_present)
+	{
+		stream->ungetc_present = 0;
+		return stream->ungetc_value;
+	}
+	
 	switch(stream->streamtype)
 	{
 		case _FILE_STREAMTYPE_BUFFD:
@@ -591,6 +674,7 @@ FILE *fdopen(int fd, const char *mode)
 		free(retval);
 		return NULL;
 	}
+	retval->buf_ext = 0; //We free buf_ptr
 	
 	//Note file descriptor backing the stream.
 	retval->streamtype = _FILE_STREAMTYPE_BUFFD;
@@ -622,7 +706,7 @@ int fclose(FILE *stream)
 	//Free the buffer if we own it
 	if(stream->streamtype != _FILE_STREAMTYPE_STRN)
 	{
-		if(stream->buf_ptr != NULL)
+		if(stream->buf_ptr != NULL && !(stream->buf_ext))
 		{
 			free(stream->buf_ptr);
 			stream->buf_ptr = NULL;

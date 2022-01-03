@@ -687,6 +687,30 @@ int rmdir(const char *path)
 	return unlinkat(AT_FDCWD, path, AT_REMOVEDIR);
 }
 
+int mkdirat(int fd, const char *path, mode_t mode)
+{
+	//Make "mode" refer to the given mode, as a directory.
+	//Make sure no conflicting mode bits were set.
+	mode |= S_IFDIR;
+	if(!S_ISDIR(mode))
+	{
+		errno = EINVAL;
+		return -1;
+	}
+	
+	int made = _openatm(fd, path, O_CLOEXEC | O_CREAT | O_EXCL, mode);
+	if(made == -1)
+		return -1;
+	
+	close(made);
+	return 0;
+}
+
+int mkdir(const char *path, mode_t mode)
+{
+	return mkdirat(AT_FDCWD, path, mode);
+}
+
 int faccessat(int fd, const char *path, int mode, int flag)
 {
 	int testfd = _openatm(fd, path, flag | O_CLOEXEC, 0);

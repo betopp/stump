@@ -22,6 +22,10 @@ static m_spl_t kpage_spl;
 //Finds a free region of the given number of pages.
 static uintptr_t kpage_findfree(size_t pages_needed)
 {
+	//Okay I wanted a bump allocator but I don't have a good way of freeing unneeded kernel pagetables.
+	//Probably just as wasteful either way - scanning for totally-0 PTs or starting over each time here.
+	kpage_next = 0;
+	
 	//Do a stupid linear search through our kernel-space until we find that many free pages.
 	size_t pagesize = m_frame_size();
 	size_t maxattempts = (kpage_end - kpage_start) / pagesize;

@@ -26,7 +26,7 @@ CFLAGS += -nostdlib -nostdinc
 CFLAGS += -I$(L)/mmlibc/include
 CFLAGS += -I$(L)/libsc/include
 CFLAGS += -I$(L)/pcmd/include
-CFLAGS += -g -mno-sse
+CFLAGS += -g -mno-sse -O1
 CFLAGS += -ffunction-sections
 CFLAGS += -fdata-sections
 

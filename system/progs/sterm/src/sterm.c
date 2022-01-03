@@ -54,6 +54,11 @@ int scroll_col;
 int curs_row;
 int curs_col;
 
+//Escape code that causes us to pass the console to another process
+const char conswitch_code[] = { 0x1B, '[', 'C', 'C', 'S', 0 };
+int conswitch_match = 0;
+int32_t conswitch_pid = 0;
+
 //Keyboard modifier keys pressed
 typedef enum kbd_mods_e
 {
@@ -205,6 +210,36 @@ static void newline(void)
 //Outputs a character to the console.
 static void coutc(int ch)
 {
+	//Handle magic output to hand-off the console
+	if(conswitch_match >= 0)
+	{
+		if(conswitch_code[conswitch_match] == ch)
+		{
+			conswitch_match++;
+			if(conswitch_code[conswitch_match] == 0)
+				conswitch_match = -1;
+		}
+	}
+	else
+	{
+		if(ch < '0' || ch > '9')
+		{
+			conswitch_match = 0;
+		}
+		else
+		{
+			conswitch_pid *= 10;
+			conswitch_pid += (ch - '0');
+			conswitch_match--;
+			if(conswitch_match < -12)
+			{
+				_sc_con_pass(conswitch_pid);
+				conswitch_pid = 0;
+				conswitch_match = 0;
+			}
+		}
+	}
+	
 	//Unpaint old cursor before changing things
 	glyph( 
 		((txt_cols + curs_col - scroll_col) % win_cols) * confont_chx, 
