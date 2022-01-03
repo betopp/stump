@@ -187,7 +187,7 @@ wipe_doMelt
 
     width/=2;
 
-    while (ticks--)
+    while (ticks-- > 0)
     {
 	for (i=0;i<width;i++)
 	{
