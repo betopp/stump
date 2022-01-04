@@ -57,7 +57,7 @@ AR_A = mkdir -p $(@D) && $(AR) -r $@ $^
 TEMPLATE=template/template.tar
 
 #Top level target - tar file (additional deps defined in per-program and per-library Makefiles)
-sys.tar: $(TEMPLATE)
+sys.tar: $(TEMPLATE) $(PRELINK) $(POSTLINK)
 	mkdir -p $(@D)
 	cp $(TEMPLATE) $@
 	tar  --exclude $(TEMPLATE)  -rf $@ $^
