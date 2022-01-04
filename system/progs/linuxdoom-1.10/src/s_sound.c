@@ -261,6 +261,7 @@ S_StartSoundAtVolume
   
   mobj_t*	origin = (mobj_t *) origin_p;
   
+	return;
   
   // Debug.
   /*fprintf( stderr,

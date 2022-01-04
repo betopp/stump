@@ -271,26 +271,3 @@ ssize_t pipe_read(pipe_t *pptr, pipe_dir_t dir, void *buf, ssize_t nbytes)
 	
 	return nread;
 }
-
-int pipe_ioctl(pipe_t *pptr, pipe_dir_t dir, int operation, void *buf, ssize_t len)
-{
-	(void)buf;
-	(void)len;
-	(void)dir;
-	
-	switch(operation)
-	{
-		case _SC_IOCTL_ISATTY:
-		{
-			//If we've got references both forward and reverse, this "is a TTY".
-			bool fwd = pptr->dirs[PIPE_DIR_FORWARD].refs_r || pptr->dirs[PIPE_DIR_FORWARD].refs_w;
-			bool rev = pptr->dirs[PIPE_DIR_REVERSE].refs_r || pptr->dirs[PIPE_DIR_REVERSE].refs_w;
-			if(fwd && rev)
-				return 1;
-			else
-				return 0;
-		}
-		default:
-			return -ENOTTY;
-	}
-}

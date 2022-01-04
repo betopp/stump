@@ -25,17 +25,6 @@ int fb_width;
 int fb_height;
 size_t fb_stride;
 
-//File descriptor for console device we're running on
-int fd_con;
-
-//Output pipe to send keyboard keys to shell
-int fd_fromshell_r;
-int fd_fromshell_w;
-
-//Input pipe to get text output from shell
-int fd_toshell_r;
-int fd_toshell_w;
-
 //Text buffer holding console output, to be scrolled along
 char *txt_buf; //Storage for text on screen / scrollback
 char **txt_ptrs; //Points to array of pointers (one per line) pointing to characters (one per column)
@@ -58,6 +47,12 @@ int curs_col;
 const char conswitch_code[] = { 0x1B, '[', 'C', 'C', 'S', 0 };
 int conswitch_match = 0;
 int32_t conswitch_pid = 0;
+
+//File descriptor for back of pseudoterminal - that we hold onto
+int pty_fd;
+
+//File descriptor for front of pseudoterminal - that we give to the shell
+int tty_fd;
 
 //Keyboard modifier keys pressed
 typedef enum kbd_mods_e
@@ -328,26 +323,36 @@ void kbd(_sc_con_scancode_t scancode, bool press)
 			if(scancode >= _SC_CON_SCANCODE_A && scancode <= _SC_CON_SCANCODE_Z)
 			{
 				uint8_t ctrlchar = 1 + scancode - _SC_CON_SCANCODE_A;
-				write(fd_toshell_w, &ctrlchar, 1);
+				
+				//Todo - need a proper place to handle this stuff.
+				//Is the kernel pty system really the best place?
+				if(ctrlchar == 3)
+				{
+					//Ctrl-C
+					killpg(tcgetpgrp(pty_fd), SIGTERM);
+					return;
+				}
+				
+				write(pty_fd, &ctrlchar, 1);
 			}
 		}
 		else
 		{
 			if(scancode == _SC_CON_SCANCODE_UP)
 			{
-				write(fd_toshell_w, (uint8_t[]){0x1b, 0x5b, 0x41}, 3);
+				write(pty_fd, (uint8_t[]){0x1b, 0x5b, 0x41}, 3);
 			}
 			else if(scancode == _SC_CON_SCANCODE_DOWN)
 			{
-				write(fd_toshell_w, (uint8_t[]){0x1b, 0x5b, 0x42}, 3);
+				write(pty_fd, (uint8_t[]){0x1b, 0x5b, 0x42}, 3);
 			}
 			else if(scancode == _SC_CON_SCANCODE_LEFT)
 			{
-				write(fd_toshell_w, (uint8_t[]){0x1b, 0x5b, 0x44}, 3);
+				write(pty_fd, (uint8_t[]){0x1b, 0x5b, 0x44}, 3);
 			}
 			else if(scancode == _SC_CON_SCANCODE_RIGHT)
 			{
-				write(fd_toshell_w, (uint8_t[]){0x1b, 0x5b, 0x43}, 3);
+				write(pty_fd, (uint8_t[]){0x1b, 0x5b, 0x43}, 3);
 			}
 			else
 			{
@@ -357,7 +362,7 @@ void kbd(_sc_con_scancode_t scancode, bool press)
 				
 				uint8_t keyval = keymap_usa[scancode][keymap_set];
 				if(keyval != 0)
-					write(fd_toshell_w, &keyval, 1);
+					write(pty_fd, &keyval, 1);
 			}
 		}
 	}
@@ -371,49 +376,30 @@ int main(int argc, const char **argv, const char **envp)
 	(void)argv;
 	(void)envp;
 	
-	//Make pipes that will go to/from the shell
-	
-	//Make a pipe that will come from the shell, as it outputs to the terminal.
-	int fromshell_fds[2];
-	int fromshell_err = pipe(fromshell_fds);
-	if(fromshell_err < 0)
+	//Open the back of the pseudoterminal for our side of communications
+	char *pty_name_buf = "/dev/pty";
+	pty_fd = open("/dev/pty", O_RDWR);
+	if(pty_fd < 0)
 	{
-		perror("pipe fromshell");
+		perror("open /dev/pty");
 		abort();
 	}
-	fd_fromshell_r = fromshell_fds[0];
-	fd_fromshell_w = fromshell_fds[1];
-	
-	//Open the reverse side of the pipe to get input from the terminal to the shell.
-	fd_toshell_r = _sc_find(fd_fromshell_w, "~");
-	if(fd_toshell_r < 0)
+	int pty_name_result = _sc_ioctl(pty_fd, _SC_IOCTL_SETNAME, pty_name_buf, strlen(pty_name_buf) + 1);
+	if(pty_name_result < 0)
 	{
-		errno = -fd_toshell_r;
-		perror("pipe reverse r");
-		abort();
-	}
-	fd_toshell_w = _sc_find(fd_fromshell_r, "~");
-	if(fd_toshell_w < 0)
-	{
-		errno = -fd_toshell_w;
-		perror("pipe reverse w");
-		abort();
-	}	
-	int access_w_err = _sc_access(fd_toshell_w, _SC_ACCESS_W, _SC_ACCESS_R);
-	if(access_w_err < 0)
-	{
-		errno = -access_w_err;
-		perror("pipe access w");
-		abort();
-	}
-	int access_r_err = _sc_access(fd_toshell_r, _SC_ACCESS_R, _SC_ACCESS_W);
-	if(access_r_err < 0)
-	{
-		errno = -access_r_err;
-		perror("pipe access r");
+		errno = -pty_name_result;
+		perror("ioctl pty name");
 		abort();
 	}
 	
+	//Make sure we can open the front of the pseudoterminal, to hand it over to the shell
+	tty_fd = open("/dev/tty", O_RDWR);
+	if(tty_fd < 0)
+	{
+		perror("open /dev/tty");
+		abort();
+	}
+
 	//Figure out framebuffer dimensions and allocate enough memory to back it	
 	fb_width = FB_WIDTH;
 	fb_height = FB_HEIGHT;
@@ -489,20 +475,17 @@ int main(int argc, const char **argv, const char **envp)
 	if(forkpid == 0)
 	{
 		//Child process
-		close(fd_toshell_w);
-		close(fd_fromshell_r);
-		
-		dup2(fd_toshell_r, STDIN_FILENO);
-		dup2(fd_fromshell_w, STDOUT_FILENO);
-		dup2(fd_fromshell_w, STDERR_FILENO);
+		close(pty_fd);
+		dup2(tty_fd, STDIN_FILENO);
+		dup2(tty_fd, STDOUT_FILENO);
+		dup2(tty_fd, STDERR_FILENO);
 		execve("/bin/oksh-6.9", (char*[]){"oksh-6.9", NULL}, (char**)envp);
 		perror("execve");
 		abort(); //execl shouldn't return
 	}
 	
 	//Parent process
-	close(fd_toshell_r);
-	close(fd_fromshell_w);
+	close(tty_fd);
 	
 	//Pump those pipes
 	while(1)
@@ -534,7 +517,7 @@ int main(int argc, const char **argv, const char **envp)
 		while(1)
 		{
 			uint8_t from_shell_buf[64];
-			ssize_t from_shell_len = _sc_read(fd_fromshell_r, from_shell_buf, sizeof(from_shell_buf));
+			ssize_t from_shell_len = _sc_read(pty_fd, from_shell_buf, sizeof(from_shell_buf));
 			if(from_shell_len <= 0)
 				break;
 			

@@ -72,7 +72,7 @@ void process_init(void)
 
 process_t *process_lockfree(void)
 {
-	for(int pp = 0; pp < PROCESS_MAX; pp++)
+	for(int pp = 1; pp < PROCESS_MAX; pp++)
 	{
 		process_t *pptr = &(process_table[pp]);
 		if(m_spl_try(&(pptr->spl)))

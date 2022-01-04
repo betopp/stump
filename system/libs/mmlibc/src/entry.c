@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <sc.h>
 
 char **_default_environ = (char*[]){ "stump=" BUILDVERSION , NULL };
 
@@ -29,6 +30,7 @@ void _libc_entry(int argc, char **argv, char **envp)
 	{
 		signal(ss, SIG_DFL);
 	}
+	_sc_sig_mask(SIG_SETMASK, 0);
 	
 	//Call constructors
 	extern void _init();

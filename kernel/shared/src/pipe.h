@@ -80,7 +80,4 @@ ssize_t pipe_write(pipe_t *pptr, pipe_dir_t dir, const void *buf, ssize_t len);
 //Tries to read from the given pipe. Returns the number of bytes read, or a negative error number.
 ssize_t pipe_read(pipe_t *pptr, pipe_dir_t dir, void *buf, ssize_t len);
 
-//Pipes respond to ioctls to do things like isatty and I hate it
-int pipe_ioctl(pipe_t *pptr, pipe_dir_t dir, int operation, void *buf, ssize_t len);
-
 #endif //PIPE_H

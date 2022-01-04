@@ -37,6 +37,16 @@ size_t strlen(const char *s)
 	return l;
 }
 
+size_t strnlen(const char *s, size_t maxlen)
+{
+	size_t l = 0;
+	while(s[l] != '\0' && l < maxlen)
+	{
+		l++;
+	}
+	return l;
+}
+
 int strcmp(const char *s1, const char *s2)
 {
 	while(1)

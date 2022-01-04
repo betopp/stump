@@ -17,7 +17,7 @@ char *ttyname(int fd)
 
 int ttyname_r(int fd, char *buf, size_t len)
 {
-	int result = _sc_ioctl(fd, _SC_IOCTL_TTYNAME, buf, len);
+	int result = _sc_ioctl(fd, _SC_IOCTL_GETNAME, buf, len);
 	if(result < 0)
 		return -result;
 	

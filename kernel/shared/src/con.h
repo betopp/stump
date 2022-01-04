@@ -14,6 +14,12 @@ void con_settid(id_t tid);
 //Outputs pending keyboard/mouse input.
 ssize_t con_input(void *buf, ssize_t buflen);
 
+//Returns true if the console can return to the init process.
+bool con_steal_check(void);
+
+//Primes the console to be stolen by the init process.
+void con_steal_prepare(void);
+
 //Called on interrupt when keyboard input occurs.
 void con_isr_kbd(_sc_con_scancode_t scancode, bool state);
 

@@ -16,6 +16,12 @@ static volatile m_atomic_t con_inbuf_w;
 //Which thread gets unpaused when console input occurs
 static id_t con_tid;
 
+//Whether the System modifier key is pressed or not, for triggering console return-to-init.
+static bool con_syskey_modifier;
+
+//Whether the console should return to the init process.
+static m_atomic_t con_syskey_trigger;
+
 void con_settid(id_t tid)
 {
 	if(tid != con_tid)
@@ -61,8 +67,36 @@ ssize_t con_input(void *buf, ssize_t buflen)
 	return retval;
 }
 
+bool con_steal_check(void)
+{
+	return m_atomic_cmpxchg(&con_syskey_trigger, 1, 0);
+}
+
+void con_steal_prepare(void)
+{
+	m_atomic_cmpxchg(&con_syskey_trigger, 0, 1);
+	thread_unpause(con_tid);
+	thread_unpause(1);
+}
+
 void con_isr_kbd(_sc_con_scancode_t scancode, bool state)
 {
+	//Check for "console reset" combo - track system key and trigger on sys+tilde
+	if(scancode == _SC_CON_SCANCODE_LCTRL)
+	{
+		con_syskey_modifier = state;
+	}
+	
+	if(scancode == _SC_CON_SCANCODE_GRAVE)
+	{
+		if(con_syskey_modifier && state)
+		{
+			//Unpause the first process's thread so it can re-grab the console.
+			con_steal_prepare();
+			return;
+		}
+	}
+		
 	m_atomic_t latest_r = con_inbuf_r;
 	m_atomic_t latest_w = con_inbuf_w;
 	m_atomic_t next_w = (latest_w + 1) % CON_INBUF_MAX;

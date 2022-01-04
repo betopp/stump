@@ -1005,6 +1005,8 @@ ssize_t k_sc_con_input(_sc_con_input_t *buf_ptr, ssize_t each_bytes, ssize_t buf
 		return -EINVAL;
 	
 	process_t *pptr = process_lockcur();
+	
+	//Have to hold the console to get input
 	if(!pptr->hascon)
 	{
 		//Process doesn't have the console. Return no input.
@@ -1019,7 +1021,33 @@ ssize_t k_sc_con_input(_sc_con_input_t *buf_ptr, ssize_t each_bytes, ssize_t buf
 
 int k_sc_con_pass(pid_t next)
 {
-	process_t *pptr = process_lockcur();	
+	process_t *pptr = process_lockcur();
+	
+	//Permit PID1 to steal the console at user's direction
+	if(pptr->pid == 1)
+	{
+		if(con_steal_check())
+		{
+			//Take console away from previous holder
+			for(int pp = 0; pp < PROCESS_MAX; pp++)
+			{
+				process_t *from_pptr = &(process_table[pp]);
+				if(from_pptr == pptr)
+					continue;
+				
+				m_spl_acq(&(from_pptr->spl));
+				if(from_pptr->hascon)
+					from_pptr->hascon = false;
+				
+				m_spl_rel(&(from_pptr->spl));
+			}
+			
+			//We own it now
+			pptr->hascon = true;
+			con_settid(1);
+		}
+	}
+	
 	if(!pptr->hascon)
 	{
 		//Don't have the console right now, can't pass it
@@ -1038,6 +1066,13 @@ int k_sc_con_pass(pid_t next)
 	if(newpptr == NULL)
 	{
 		//No such target
+		process_unlock(pptr);
+		return -ESRCH;
+	}
+	
+	if(newpptr->state != PROCESS_STATE_ALIVE)
+	{
+		process_unlock(newpptr);
 		process_unlock(pptr);
 		return -ESRCH;
 	}

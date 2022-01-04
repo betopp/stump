@@ -123,12 +123,13 @@ typedef struct _sc_stat_s
 //Returns file status information about the file referred to by an open file descriptor.
 ssize_t _sc_stat(int fd, _sc_stat_t *buf, ssize_t len);
 
-//Device-specific IO operations recognized by the kernel
-#define _SC_IOCTL_GETATTR 1
-#define _SC_IOCTL_SETATTR 2
-#define _SC_IOCTL_GETPGRP 3
-#define _SC_IOCTL_SETPGRP 4
-#define _SC_IOCTL_TTYNAME 5
+//Device-specific IO operations recognized by the kernel - mostly needed for pseudoterminals
+#define _SC_IOCTL_GETNAME 0
+#define _SC_IOCTL_SETNAME 1
+#define _SC_IOCTL_GETATTR 2
+#define _SC_IOCTL_SETATTR 3
+#define _SC_IOCTL_GETPGRP 4
+#define _SC_IOCTL_SETPGRP 5
 #define _SC_IOCTL_ISATTY  6
 
 //Performs device-specific IO operations on a file descriptor.

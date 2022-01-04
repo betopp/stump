@@ -17,6 +17,7 @@
 #include "d_log.h"
 #include "d_null.h"
 #include "d_nxio.h"
+#include "d_pty.h"
 
 //All files currently open on the system.
 #define FILE_MAX 1024
@@ -25,10 +26,11 @@ static file_t file_table[FILE_MAX];
 //Character devices supported
 typedef enum file_chrdev_major_e
 {
-	FILE_CHRDEV_MAJOR_NULL = 0,
-	FILE_CHRDEV_MAJOR_LOG  = 2,
-	FILE_CHRDEV_MAJOR_NXIO = 3,
-	
+	FILE_CHRDEV_MAJOR_NULL  = 0,
+	FILE_CHRDEV_MAJOR_PTY_F = 1,
+	FILE_CHRDEV_MAJOR_PTY_B = 2,
+	FILE_CHRDEV_MAJOR_LOG   = 3,
+	FILE_CHRDEV_MAJOR_NXIO  = 4,
 	FILE_CHRDEV_MAJOR_MAX
 } file_chrdev_major_t;
 
@@ -59,6 +61,22 @@ static const file_chrdev_t file_chrdev_table[FILE_CHRDEV_MAJOR_MAX] =
 		.read = d_nxio_read,
 		.write = d_nxio_write,
 		.ioctl = d_nxio_ioctl,
+	},
+	[FILE_CHRDEV_MAJOR_PTY_F] = 
+	{
+		.open = d_pty_f_open,
+		.close = d_pty_f_close,
+		.read = d_pty_f_read,
+		.write = d_pty_f_write,
+		.ioctl = d_pty_f_ioctl,
+	},
+	[FILE_CHRDEV_MAJOR_PTY_B] = 
+	{
+		.open = d_pty_b_open,
+		.close = d_pty_b_close,
+		.read = d_pty_b_read,
+		.write = d_pty_b_write,
+		.ioctl = d_pty_b_ioctl,
 	},
 };
 
@@ -450,18 +468,7 @@ off_t file_seek(file_t *file, off_t offset, int whence)
 }
 
 int file_ioctl(file_t *file, int operation, void *buf, ssize_t len)
-{
-	if(S_ISFIFO(file->mode))
-	{
-		int pipe_id = (file->special > 0) ? file->special : -file->special;
-		pipe_dir_t pipe_dir = (file->special > 0) ? PIPE_DIR_FORWARD : PIPE_DIR_REVERSE;
-		
-		pipe_t *pipe = pipe_lockid(pipe_id);
-		int result = pipe_ioctl(pipe, pipe_dir, operation, buf, len);
-		pipe_unlock(pipe);
-		return result;
-	}
-	
+{	
 	if(S_ISCHR(file->mode))
 	{
 		const file_chrdev_t *major = file_chrdev_major(file->special);

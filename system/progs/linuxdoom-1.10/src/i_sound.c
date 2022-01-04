@@ -95,7 +95,7 @@ static int flag = 0;
 int 		lengths[NUMSFX];
 
 // The actual output device.
-int	audio_fd;
+int	audio_fd = -1;
 
 // The global mixing buffer.
 // Basically, samples from all active internal channels

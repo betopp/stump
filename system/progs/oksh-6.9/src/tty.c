@@ -33,10 +33,10 @@ tty_init(int init_ttystate)
 	tty_close();
 	tty_devtty = 1;
 
-	tfd = open("/dev/con", O_RDWR, 0); //pathetix: /dev/con
+	tfd = open("/dev/tty", O_RDWR, 0);
 	if (tfd == -1) {
 		tty_devtty = 0;
-		warningf(false, "No controlling tty (open /dev/con: %s)", //pathetix: /dev/con
+		warningf(false, "No controlling tty (open /dev/tty: %s)",
 		    strerror(errno));
 
 		do_close = 0;

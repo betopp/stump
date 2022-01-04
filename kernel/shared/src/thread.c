@@ -6,6 +6,7 @@
 #include "m_intr.h"
 #include "m_tls.h"
 #include "kassert.h"
+#include "con.h"
 #include "kpage.h"
 #include <errno.h>
 #include <stddef.h>
@@ -16,7 +17,7 @@ thread_t thread_table[THREAD_MAX];
 
 thread_t *thread_lockfree(void)
 {
-	for(int tt = 0; tt < THREAD_MAX; tt++)
+	for(int tt = 1; tt < THREAD_MAX; tt++)
 	{
 		//Don't bother fighting over a lock - locked thread is necessarily in use.
 		thread_t *tptr = &(thread_table[tt]);
@@ -212,13 +213,7 @@ void thread_cleanup(thread_t *tptr)
 		
 		//If the process with the console just died, the console returns to PID 1.
 		if(hadcon)
-		{
-			process_t *initpptr = process_lockpid(1);
-			KASSERT(initpptr != NULL);
-			initpptr->hascon = true;
-			thread_unpause(initpptr->contid);
-			process_unlock(initpptr);
-		}
+			con_steal_prepare();
 	}
 	else
 	{
