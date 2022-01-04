@@ -101,9 +101,11 @@ int xlatekey(int input)
 	break;
 	
       default:
-	if (rc >= _SC_CON_SCANCODE_SPACE && rc <= _SC_CON_SCANCODE_GRAVE)
+	if (rc >= _SC_CON_SCANCODE_1 && rc <= _SC_CON_SCANCODE_9)
+	    rc = rc - _SC_CON_SCANCODE_1 + '1';
+	else if (rc >= _SC_CON_SCANCODE_SPACE && rc <= _SC_CON_SCANCODE_GRAVE)
 	    rc = rc - _SC_CON_SCANCODE_SPACE + ' ';
-	if (rc >= _SC_CON_SCANCODE_A && rc <= _SC_CON_SCANCODE_Z)
+	else if (rc >= _SC_CON_SCANCODE_A && rc <= _SC_CON_SCANCODE_Z)
 	    rc = rc - _SC_CON_SCANCODE_A + 'a';
 	break;
     }
