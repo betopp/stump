@@ -1,0 +1,4 @@
+This is a small operating system for amd64 PC. Build the system image in system/build/amd64 and then build the kernel (which links the system image) in kernel/amd64.
+
+This repository includes the OpenBSD Korn Shell (oksh-6.9) and Shareware Doom (linuxdoom-1.10) which have their own licenses. All other code is written by Bryan E. Topp and may be distributed according to the GPLv3.
+
