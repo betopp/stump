@@ -5,6 +5,7 @@
 #include "thread.h"
 #include "m_intr.h"
 #include "m_tls.h"
+#include "m_time.h"
 #include "kassert.h"
 #include "con.h"
 #include "kpage.h"
@@ -54,7 +55,7 @@ int thread_new(process_t *process, uintptr_t entry, thread_t **thread_out)
 		return -ENOMEM;
 	}
 	
-	tptr->state = THREAD_STATE_SUSPEND;
+	thread_chstate(tptr, THREAD_STATE_SUSPEND);
 	tptr->process = process;
 	
 	//Threads start with all signals masked, so they don't catch them before they're ready.
@@ -102,6 +103,20 @@ void thread_unlock(thread_t *thread)
 	m_spl_rel(&(thread->spl));
 }
 
+void thread_chstate(thread_t *thread, thread_state_t newstate)
+{
+	KASSERT(thread->state >= THREAD_STATE_NONE && thread->state < THREAD_STATE_MAX);
+	KASSERT(newstate >= THREAD_STATE_NONE && newstate < THREAD_STATE_MAX);
+	
+	int64_t tsc_last = thread->tsc_last;
+	int64_t tsc_new = m_time_tsc();
+	
+	thread->tsc_totals[thread->state] += (tsc_new - tsc_last);
+	thread->tsc_last = tsc_new;
+	
+	thread->state = newstate;
+}
+
 void thread_unpause(id_t tid)
 {
 	//CAN BE CALLED FROM ISR.
@@ -129,7 +144,8 @@ void thread_cleanup(thread_t *tptr)
 	pid_t oldpid = tptr->process->pid;
 	
 	//Clear thread structure
-	tptr->state = THREAD_STATE_NONE;
+	thread_chstate(tptr, THREAD_STATE_NONE);
+	memset(tptr->tsc_totals, 0, sizeof(tptr->tsc_totals));
 	tptr->process = NULL;
 	memset(&(tptr->drop), 0, sizeof(tptr->drop));
 	memset(&(tptr->sigdrop), 0, sizeof(tptr->sigdrop));
@@ -224,7 +240,78 @@ void thread_cleanup(thread_t *tptr)
 
 void thread_sched(void)
 {
-	//Try until we get something to run.
+	//If we just serviced a thread, see if there's any cleanup to be done on it.
+	if(m_tls_get() != NULL)
+	{
+		//Check the state of the process containing the thread.
+		//If it's trying to clean up, the thread dies too.
+		thread_t *tptr = thread_lockcur();
+		KASSERT(tptr->state == THREAD_STATE_SYSCALL);
+		
+		if(tptr->process->state != PROCESS_STATE_ALIVE)
+			thread_chstate(tptr, THREAD_STATE_DEAD);
+		
+		//If the thread has a pending signal it can handle, scoot it into the signal handler.
+		int64_t triggered = tptr->sigpend & ~(tptr->sigmask);
+		if(triggered)
+		{
+			//Figure out which signal to trigger.
+			int signum = -1;
+			for(int bb = 0; bb < 64; bb++)
+			{
+				if(triggered & (1 << bb))
+				{
+					signum = bb;
+					break;
+				}
+			}
+			KASSERT(signum >= 0 && signum < 63);
+			tptr->siginfo.signum = signum;
+			
+			//Set aside info about thread at the time it was signalled
+			m_drop_copy(&(tptr->sigdrop), &(tptr->drop));
+			tptr->siginfo.mask = tptr->sigmask;
+			
+			//Mask further signals
+			tptr->sigmask = 0x7FFFFFFFFFFFFFFFul;
+			
+			//Continue at specified signal handler address
+			m_drop_signal(&(tptr->drop), tptr->sigpc, tptr->sigsp);
+
+			//Thread unpauses when signalled, of course
+			tptr->unpauses++;
+			
+			//Signal is no longer pending
+			tptr->sigpend &= ~(1u << signum);
+		}
+		
+		//Short-circuit - if a thread made a system call and it's not blocked, keep running it.
+		//Todo - some limited leniency with the scheduler.
+		//This avoids bouncing between user-spaces unnecessarily.
+		if(tptr->state == THREAD_STATE_SYSCALL && tptr->unpauses >= tptr->unpauses_req && tptr->tsc_resched > m_time_tsc())
+		{
+			thread_chstate(tptr, THREAD_STATE_RUN);
+			thread_unlock(tptr);
+			m_drop(&(tptr->drop));
+		}
+		
+		//If we're going to be leaving the thread, we can't keep using its process's memory space.
+		//If the thread gets killed on another CPU and they clean up the process, it can disappear.
+		m_uspc_activate(0);
+		
+		//If the thread has died, clean it up. Otherwise, it suspends.
+		if(tptr->state == THREAD_STATE_DEAD)
+		{
+			thread_cleanup(tptr);
+		}
+		else
+		{
+			thread_chstate(tptr, THREAD_STATE_SUSPEND);
+			thread_unlock(tptr);
+		}
+	}
+		
+	//Look for some other thread to run.
 	while(1)
 	{
 		//Disable interrupts while trying to schedule.
@@ -265,10 +352,13 @@ void thread_sched(void)
 		//Note which thread we'll be running on this core, as its kernel stack/context is about to be clobbered.
 		m_tls_set(tptr);
 		
+		//Note when we should consider kicking the thread off the CPU
+		tptr->tsc_resched = m_time_tsc() + 100000000l;
+		
 		//Mark the thread as running, and resume its userspace.
 		//(Assume nobody's messing with this, if the thread is marked "running", even though we release the lock)
 		KASSERT(tptr->state == THREAD_STATE_SUSPEND);
-		tptr->state = THREAD_STATE_RUN;
+		thread_chstate(tptr, THREAD_STATE_RUN);
 		thread_unlock(tptr);
 		
 		m_uspc_activate(tptr->process->mem.uspc);

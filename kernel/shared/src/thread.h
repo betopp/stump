@@ -19,6 +19,7 @@ typedef enum thread_state_e
 	
 	THREAD_STATE_SUSPEND, //Thread is not executing - may be scheduled unless waiting for unpauses
 	THREAD_STATE_RUN, //Thread is currently executing on some core
+	THREAD_STATE_SYSCALL, //Thread is having a system-call serviced
 	THREAD_STATE_DEAD, //Thread has exited, but status is not delivered to its parent yet
 	
 	THREAD_STATE_MAX
@@ -37,9 +38,19 @@ typedef struct thread_s
 	//State of thread control block
 	thread_state_t state;
 	
+	
+	//How much time has been spent in each state
+	int64_t tsc_totals[THREAD_STATE_MAX];
+	
+	//Timestamp when state was last changed
+	int64_t tsc_last;
+	
+	//Timestamp at which we'll make another scheduling decision
+	int64_t tsc_resched;
+	
+	
 	//Process containing the thread
 	process_t *process;
-	
 	
 	//User context
 	m_drop_t drop;
@@ -93,6 +104,9 @@ thread_t *thread_lockcur(void);
 
 //Unlocks the given thread.
 void thread_unlock(thread_t *thread);
+
+//Changes the state of the given thread, updating its accounting
+void thread_chstate(thread_t *thread, thread_state_t newstate);
 
 //Causes a thread to resume if waiting, or skip its next waiting if already ready.
 //CAN BE CALLED FROM ISR.
