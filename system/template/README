@@ -1,0 +1,2 @@
+This directory contains a tar file, template.tar, which is included in all system tars. It contains device nodes and arch-independent data.
+

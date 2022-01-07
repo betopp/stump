@@ -106,7 +106,7 @@ void thread_unlock(thread_t *thread)
 void thread_chstate(thread_t *thread, thread_state_t newstate)
 {
 	KASSERT(thread->state >= THREAD_STATE_NONE && thread->state < THREAD_STATE_MAX);
-	KASSERT(newstate >= THREAD_STATE_NONE && newstate < THREAD_STATE_MAX);
+	KASSERT(newstate < THREAD_STATE_MAX);
 	
 	int64_t tsc_last = thread->tsc_last;
 	int64_t tsc_new = m_time_tsc();

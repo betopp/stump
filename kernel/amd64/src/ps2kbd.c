@@ -205,8 +205,8 @@ void ps2kbd_isr(void)
 	int table_idx = ps2data + (ps2kbd_extend ? 256 : 0);
 	if(ps2kbd_table[table_idx] != 0)
 	{
-		extern void entry_kbd();
-		entry_kbd(ps2kbd_table[table_idx], !ps2kbd_break);
+		extern void entry_isr_kbd();
+		entry_isr_kbd(ps2kbd_table[table_idx], !ps2kbd_break);
 	}
 
 	//Clear prefix flags, now that we've read their following byte.

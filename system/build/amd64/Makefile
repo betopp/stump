@@ -54,7 +54,7 @@ CC_OBJ = mkdir -p $(@D) && $(CC) $(CFLAGS) -c $< -o $@ -MMD
 AR_A = mkdir -p $(@D) && $(AR) -r $@ $^
 
 #tarball containing stuff that is copied verbatim into the system tar (device nodes, mainly)
-TEMPLATE=template/template.tar
+TEMPLATE=../../template/template.tar
 
 #Top level target - tar file (additional deps defined in per-program and per-library Makefiles)
 sys.tar: $(TEMPLATE) $(PRELINK) $(POSTLINK)

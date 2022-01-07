@@ -12,7 +12,7 @@
 #include "thread.h"
 #include "file.h"
 #include "pipe.h"
-#include "elf64.h"
+#include "elf.h"
 #include "m_time.h"
 #include "con.h"
 #include <errno.h>
@@ -261,7 +261,7 @@ intptr_t k_sc_exec(int fd, char *const argv[], char *const envp[])
 	}
 	
 	uintptr_t elf_entry = 0;
-	int elf_err = elf64_load(elf_file, &(pptr->mem_attempt), &elf_entry);
+	int elf_err = elf_load(elf_file, &(pptr->mem_attempt), &elf_entry);
 	if(elf_err < 0)
 	{
 		//Failed to load the new process image.

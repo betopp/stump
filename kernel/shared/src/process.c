@@ -5,7 +5,7 @@
 #include "process.h"
 #include "thread.h"
 #include "kassert.h"
-#include "elf64.h"
+#include "elf.h"
 #include "argenv.h"
 #include "thread.h"
 #include "m_tls.h"
@@ -52,7 +52,7 @@ void process_init(void)
 	
 	//Simulate a call to exec, to load up the process with the init ELF
 	uintptr_t entry = 0;
-	int elf_err = elf64_load(init_file, &(pptr->mem), &entry);
+	int elf_err = elf_load(init_file, &(pptr->mem), &entry);
 	KASSERT(elf_err == 0);
 	
 	uintptr_t argenv_loaded = 0;

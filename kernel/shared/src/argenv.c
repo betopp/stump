@@ -64,7 +64,7 @@ int argenv_load(mem_t *mem, char * const * argv, char * const * envp, uintptr_t 
 	if(argenv_segsize % pagesize != 0)
 		argenv_segsize += pagesize - (argenv_segsize % pagesize);
 	
-	intptr_t argenv_addr = mem_avail(mem, ~0ull, argenv_segsize);
+	intptr_t argenv_addr = mem_avail(mem, -1, argenv_segsize);
 	if(argenv_addr < 0)
 	{
 		//No free address space

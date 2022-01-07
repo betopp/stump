@@ -70,7 +70,7 @@ uintptr_t entry_syscall(uintptr_t num, uintptr_t p1, uintptr_t p2, uintptr_t p3,
 
 //Entered in interrupt context when a keyboard key is pressed or released.
 //Should return, to return from interrupt service.
-void entry_kbd(_sc_con_scancode_t scancode, bool state)
+void entry_isr_kbd(_sc_con_scancode_t scancode, bool state)
 {
 	con_isr_kbd(scancode, state);
 }

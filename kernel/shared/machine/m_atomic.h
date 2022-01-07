@@ -4,7 +4,7 @@
 #ifndef M_ATOMIC_H
 #define M_ATOMIC_H
 
-typedef int64_t m_atomic_t;
+typedef intptr_t m_atomic_t;
 
 //Increments the given atomic variable. Returns its new value.
 m_atomic_t m_atomic_increment_and_fetch(volatile m_atomic_t *atomic);
