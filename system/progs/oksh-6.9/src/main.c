@@ -319,7 +319,7 @@ main(int argc, char *argv[])
 		/* Set PS1 if it isn't set */
 		if (!(vp->flag & ISSET)) {
 			/* setstr can't fail here */
-			setstr(vp, "\\h\\$ ", KSH_RETURN_ERROR);
+			setstr(vp, "[stump \\w]\\$ ", KSH_RETURN_ERROR);
 		}
 	}
 

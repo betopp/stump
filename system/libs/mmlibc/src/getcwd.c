@@ -28,6 +28,8 @@ ssize_t _getcwd_name(int fd, char *buf, size_t size)
 	if(parent < 0)
 		return parent;
 	
+	_sc_access(parent, _SC_ACCESS_R | _SC_ACCESS_X, 0);
+	
 	//Read all dirents from the parent
 	while(1)
 	{

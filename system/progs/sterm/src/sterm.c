@@ -458,11 +458,9 @@ int main(int argc, const char **argv, const char **envp)
 	setscroll(0, 0);
 	
 	//Show intro message
-	const char *intro = "sterm: " BUILDVERSION " by " BUILDUSER " at " BUILDDATE "\n" "sterm: spawning /bin/oksh-6.9\n";
-	for(const char *cc = intro; *cc != '\0'; cc++)
-	{
-		coutc(*cc);
-	}
+	dprintf(tty_fd, "sterm: " BUILDVERSION " by " BUILDUSER " at " BUILDDATE "\n");
+	dprintf(tty_fd, "sterm: pid=%d ppid=%d\n", getpid(), getppid());
+	dprintf(tty_fd, "sterm: spawning /bin/oksh-6.9\n");
 	
 	//Spawn the shell (spawn the getty?)
 	pid_t forkpid = fork();

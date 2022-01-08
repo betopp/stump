@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <sc.h>
 
 extern char **environ;
@@ -37,11 +38,11 @@ int main(int argc, const char **argv, const char **envp)
 	}
 	dup2(null_fd, STDIN_FILENO);
 	
-	//Give us a valid PWD
-	int chdir_err = chdir("/");
-	if(chdir_err < 0)
+	//Set home directory and put us there
+	setenv("HOME", "/home", 0);
+	if(chdir("/home") < 0)
 	{
-		perror("chdir /");
+		perror("chdir /home");
 		abort();
 	}
 	
@@ -52,9 +53,6 @@ int main(int argc, const char **argv, const char **envp)
 		perror("open /bin/sterm");
 		abort();
 	}
-	
-	//Set some environment variables
-	setenv("HOME", "/", 0);
 	
 	//Keep terminal emulator spawned and active on the console
 	pid_t term_pid = 0;

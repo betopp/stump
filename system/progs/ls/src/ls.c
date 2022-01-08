@@ -44,7 +44,7 @@ void print_info(const char *name, const struct stat *st)
 	if(!cmd_list)
 	{
 		//Simple printout
-		printf("%s ", name);
+		printf("%s\t", name);
 		return;
 	}
 	
