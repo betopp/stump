@@ -137,7 +137,13 @@ _start:
 	//Run C kernel code, in virtual space
 	.extern entry_boot
 	ldr r1, =entry_boot
-	bx r1
+	blx r1
+	
+	.extern entry_smp
+	ldr r1, =entry_smp
+	blx r1
+	
+	b _start
 	
 .ltorg
 
@@ -212,18 +218,18 @@ _exc_unused:
 _exc_irq:
 	ldr sp, =_irqstack.top //Banked register - not clobbering user's
 	sub lr, #4 //Old PC in banked LR
-	stmfd sp!, {r0-r3, r12, lr}
+	stmfd sp!, {r0-r3, r9, r12, lr}
 	.extern _hw_irq
 	bl _hw_irq
-	ldmfd sp!, {r0-r3, r12, pc}^ //Returns to interrupted mode, restoring SPSR->CPSR
+	ldmfd sp!, {r0-r3, r9, r12, pc}^ //Returns to interrupted mode, restoring SPSR->CPSR
 	
 _exc_fiq:
 	ldr sp, =_fiqstack.top //Banked register - not clobbering user's
 	sub lr, #4 //Old PC in banked LR
-	stmfd sp!, {r0-r3, r12, lr}
+	stmfd sp!, {r0-r3, r9, r12, lr}
 	.extern _hw_fiq
 	bl _hw_irq
-	ldmfd sp!, {r0-r3, r12, pc}^ //Returns to interrupted mode, restoring SPSR->CPSR
+	ldmfd sp!, {r0-r3, r9, r12, pc}^ //Returns to interrupted mode, restoring SPSR->CPSR
 
 //Panic location if an exception is taken from non-user-mode
 _exc_not_usermode:

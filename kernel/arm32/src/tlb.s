@@ -33,7 +33,7 @@ m_uspc_current:
 	sub r1, r1, r2
 	
 	mrc p15, 0, r0, c2, c0, 0 //Read TTBR
-	cmp r0, r2
+	cmp r0, r1
 	beq m_uspc_current.ktable
 		bx lr
 	m_uspc_current.ktable:
@@ -42,15 +42,18 @@ m_uspc_current:
 
 .global m_uspc_activate //void m_uspc_activate(m_uspc_t uspc)
 m_uspc_activate:
+	//If the user passed 0, replace with address of kernel-only translation table
+	ldr r1, =_ktrantable
+	ldr r2, =_KSPACE_BASE
+	sub r1, r1, r2
 	cmp r0, #0
-	beq m_uspc_activate.ktable
-		mcr p15, 0, r0, c2, c0, 0 //Write TTBR
-		bx lr
-	m_uspc_activate.ktable:
-		.extern _ktrantable
-		.extern _KSPACE_BASE
-		ldr r0, =_ktrantable
-		ldr r1, =_KSPACE_BASE
-		sub r0, r0, r1
-		mcr p15, 0, r0, c2, c0, 0 //Write TTBR
-		bx lr
+	moveq r0, r1
+
+	mcr p15, 0, r0, c2, c0, 0 //Write TTBR
+	
+	mov r0, #0
+	mcr p15, 0, r0, c7, c5, 0 //Invalidate Instruction Cache
+	mcr p15, 0, r0, c7, c5, 6 //Invalidate branch prediction array
+	mcr p15, 0, r0, c8, c7, 0 //Invalidate entire Unified Main TLB
+	bx lr
+

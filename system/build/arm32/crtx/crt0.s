@@ -53,36 +53,27 @@ _crt_sigentry:
 	blx _sc_sig_return
 
 	
-//System call handlers.
-//Each requires one more parameter than the parameters to the call (i.e. which call are we running).
+//System call shims
 .global _sc0
-_sc0:
-	svc 0
-	bx lr
-	
 .global _sc1
-_sc1:
-	svc 0
-	bx lr
-	
 .global _sc2
-_sc2:
-	svc 0
-	bx lr
-	
 .global _sc3
-_sc3:
-	svc 0
-	bx lr
-	
 .global _sc4
-_sc4:
-	svc 0
-	bx lr
-	
 .global _sc5
-_sc5:	
+_sc0:
+_sc1:
+_sc2:
+_sc3:
+_sc4:
+_sc5:
+	//Parameters 0, 1, 2, and 3 are already passed in registers.
+	//Parameters 4 and 5, if used, are on the stack. Also stuff 4 and 5 into registers.
+	//Preserve the old values of r4 and r5 in doing so.
+	stmfd sp!, {r4, r5}
+	ldr r4, [sp, #8]
+	ldr r5, [sp, #12]
 	svc 0
+	ldmfd sp!, {r4, r5}
 	bx lr
 
 //longjumps
@@ -136,7 +127,7 @@ sigsetjmp:
 	str r2, [r0, #4]
 	
 	//Continue to preserving registers in env[2...]
-	add r0, r2, #8
+	add r0, #8
 	b _setjmp
 
 

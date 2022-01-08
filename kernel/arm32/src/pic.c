@@ -27,7 +27,7 @@ typedef struct _pic_regs_s
 } _pic_regs_t;
 
 //Virtual space reserved for mapping PIC control registers
-__attribute__((aligned(4096))) uint32_t _pic_regs_page[1024];
+__attribute__((aligned(16384))) uint32_t _pic_regs_page[4096];
 
 //Macro for accessing pic registers in virtual space
 #define pic_REGS ((volatile _pic_regs_t*)(_pic_regs_page))

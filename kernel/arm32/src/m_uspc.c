@@ -39,14 +39,13 @@ m_uspc_t m_uspc_new(void)
 void m_uspc_delete(m_uspc_t uspc)
 {
 	//Free all pagetables referenced by the translation table.
-	//Note that each one is actually 4 entries - but treated as one 16KByte frame.
-	//Only free the low half (userspace)
+	//Note that each one is actually 16 entries - each refers to a 256x4B pagetable, but they're treated as one 16KByte frame.
 	m_kspc_set((uintptr_t)_uspc_window, uspc);
-	for(int pp = 0; pp < 2048; pp += 4)
+	for(int pp = 0; pp < 2048; pp += 16) //Only free low-half (i.e. user) pagetables - kernel pagetables are shared, never change
 	{
 		if(_uspc_window[pp])
 		{
-			m_frame_free(_uspc_window[pp] & 0xFFFFF000ul);
+			m_frame_free(_uspc_window[pp] & 0xFFFFC000ul);
 		}
 	}
 	
@@ -105,17 +104,28 @@ bool m_uspc_set(m_uspc_t uspc, uintptr_t vaddr, uintptr_t paddr, int prot)
 	
 	uint32_t pt_idx = (vaddr / 4096) % 4096;
 	
-	uint32_t entry = paddr;
-	if(prot & M_USPC_PROT_W)
-		entry |= 0xFF0; //User writable (all 4 subpages)
-	else
-		entry |= 0xAA0; //Read-only but still user accessible (all 4 subpages)
-	
-	//Fill in 4 pagetable entries for the 16KByte frame
-	for(int ff = 0; ff < 4; ff++)
+	if(paddr != 0)
 	{
-		_uspc_window[pt_idx+ff] = entry + (4096*ff);
-		_arm_invlpg((vaddr & 0xFFFFC000) + (4096*ff));
+		uint32_t entry = paddr | 0xE; //writeback cacheable small-page
+		if(prot & M_USPC_PROT_W)
+			entry |= 0xFF0; //User writable (all 4 subpages)
+		else
+			entry |= 0xAA0; //Read-only but still user accessible (all 4 subpages)
+		
+		//Fill in 4 pagetable entries for the 16KByte frame
+		for(int ff = 0; ff < 4; ff++)
+		{
+			_uspc_window[pt_idx+ff] = entry + (4096*ff);
+			_arm_invlpg((vaddr & 0xFFFFC000) + (4096*ff));
+		}
+	}
+	else
+	{
+		for(int ff = 0; ff < 4; ff++)
+		{
+			_uspc_window[pt_idx+ff] = 0;
+			_arm_invlpg((vaddr & 0xFFFFC000) + (4096*ff));
+		}
 	}
 	
 	return true;

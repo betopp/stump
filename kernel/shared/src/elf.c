@@ -84,19 +84,34 @@ typedef struct elf_ehdr_s
 #define PF_W 2
 #define PF_R 4
 
-//ELF program header
-typedef struct elf_phdr_s
-{
-	elf_word_t  p_type;   //Type of segment
-	elf_word_t  p_flags;  //Segment attributes
-	elf_off_t   p_offset; //Offset in file
-	elf_addr_t  p_vaddr;  //Virtual address in memory
-	elf_addr_t  p_paddr;  //Physical address in memory
-	elf_xword_t p_filesz; //Size of segment in file
-	elf_xword_t p_memsz;  //Size of segment in memory
-	elf_xword_t p_align;  //Alignment required of segment
-	
-} elf_phdr_t;
+//ELF program header - 64-bit format
+#if UINTPTR_MAX == 0xFFFFFFFFFFFFFFFFull
+	typedef struct elf_phdr_s
+	{
+		elf_word_t  p_type;   //Type of segment
+		elf_word_t  p_flags;  //Segment attributes
+		elf_off_t   p_offset; //Offset in file
+		elf_addr_t  p_vaddr;  //Virtual address in memory
+		elf_addr_t  p_paddr;  //Physical address in memory
+		elf_xword_t p_filesz; //Size of segment in file
+		elf_xword_t p_memsz;  //Size of segment in memory
+		elf_xword_t p_align;  //Alignment required of segment
+		
+	} elf_phdr_t;
+#else
+	typedef struct elf_phdr_s
+	{
+		elf_word_t  p_type;   //Type of segment
+		elf_off_t   p_offset; //Offset in file
+		elf_addr_t  p_vaddr;  //Virtual address in memory
+		elf_addr_t  p_paddr;  //Physical address in memory
+		elf_word_t  p_filesz; //Size of segment in file
+		elf_word_t  p_memsz;  //Size of segment in memory
+		elf_word_t  p_flags;  //Segment attributes
+		elf_word_t  p_align;  //Alignment required of segment
+		
+	} elf_phdr_t;
+#endif
 
 int elf_load(file_t *file, mem_t *mem, uintptr_t *entry_out)
 {	

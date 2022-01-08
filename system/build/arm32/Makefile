@@ -31,6 +31,7 @@ CFLAGS += -I$(L)/pcmd/include
 CFLAGS += -g -O1
 CFLAGS += -ffunction-sections
 CFLAGS += -fdata-sections
+CFLAGS += -fsigned-char
 
 #Build information provided to compiler
 BUILDVERSION := $(shell git describe --abbrev=4 --dirty --always --tags)
@@ -44,7 +45,7 @@ CFLAGS += -DBUILDUSER=\"$(BUILDUSER)\"
 LDFLAGS += -nostdlib -Tcrtx/user.ld
 LDFLAGS += -static
 LDFLAGS += -Wl,--gc-sections
-LDFLAGS += -z max-page-size=0x1000
+LDFLAGS += -z max-page-size=0x4000
 
 #Standard compiler invocations
 PRELINK = $(O)/crt0.o $(O)/crti.o

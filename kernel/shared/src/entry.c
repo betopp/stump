@@ -47,22 +47,23 @@ uintptr_t entry_syscall(uintptr_t num, uintptr_t p1, uintptr_t p2, uintptr_t p3,
 	KASSERT(tptr->state == THREAD_STATE_RUN);
 	thread_chstate(tptr, THREAD_STATE_SYSCALL);
 	m_drop_copy(&(tptr->drop), drop);
-	
+	m_drop_retval(&(tptr->drop), 0);
 	thread_unlock(tptr);
 	tptr = NULL;
 	
 	//Run the requested system call
 	uintptr_t result = syscalls_handle(num, p1, p2, p3, p4, p5);
-	
-	//Put the result in the calling thread.
-	//Hack - don't overwrite return value if returning from signal (interrupted context is already restored)
-	if(num != 0x83)
+	if(result != 0)
 	{
+		//We initialize the result previously to be 0. Then we run the syscall.
+		//Then we change it here, only if the system-call returns nonzero.
+		//This is necessary when returning from signals.
+		// - Their old context will be restored during syscalls_handle, which then returns 0.
+		// - We don't mangle the return value in the interrupted context (now resumed).
 		tptr = thread_lockcur();
 		m_drop_retval(&(tptr->drop), result);
 		thread_unlock(tptr);
 	}
-	
 	
 	//Pick another thread to run
 	thread_sched();

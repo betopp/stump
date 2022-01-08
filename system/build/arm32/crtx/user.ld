@@ -9,7 +9,7 @@ SECTIONS {
 
 	. = 0x1000000 + SIZEOF_HEADERS;
 
-	.text ALIGN(0x1000) :
+	.text ALIGN(0x4000) :
 	{
 		*(.header)
 		*(.text*)
@@ -20,30 +20,31 @@ SECTIONS {
 		*(.fini.i)
 		*(.fini)
 		*(.fini.n)
-		. = ALIGN(0x1000);
+		. = ALIGN(0x4000);
 		_TEXT_END = .;
 	}
 
-	.rodata ALIGN(0x1000) :
+	.rodata ALIGN(0x4000) :
 	{
 		*(.rodata*)
 		*(.eh_frame*)
-		. = ALIGN(0x1000);
+		*(.ARM.exidx)
+		. = ALIGN(0x4000);
 		_RODATA_END = .;
 	}
 	
-	.data ALIGN(0x1000) :
+	.data ALIGN(0x4000) :
 	{
 		*(.data*)
-		. = ALIGN(0x1000);
+		. = ALIGN(0x4000);
 		_DATA_END = .;
 	}
 	
-	.bss ALIGN(0x1000) :
+	.bss ALIGN(0x4000) :
 	{
 		*(COMMON)
 		*(.bss*)
-		. = ALIGN(0x1000);
+		. = ALIGN(0x4000);
 		_BSS_END = .;
 	}
 }

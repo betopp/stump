@@ -37,11 +37,18 @@ bool m_kspc_set(uintptr_t vaddr, uintptr_t paddr)
 	uint32_t idx = (vaddr - 0xF0000000ul) / 4096;
 	for(uint32_t ii = idx; ii < idx + 4; ii++)
 	{
-		_kpagetables[ii] = paddr;
-		_kpagetables[ii] |= 0xE; //writeback cacheable small page
-		_kpagetables[ii] |= 0x550; //Kernel-only writable (all 4 subpages)
+		if(paddr == 0)
+		{
+			_kpagetables[ii] = 0;
+		}
+		else
+		{
+			_kpagetables[ii] = paddr;
+			_kpagetables[ii] |= 0xE; //writeback cacheable small page
+			_kpagetables[ii] |= 0x550; //Kernel-only writable (all 4 subpages)
+			paddr += 4096;
+		}
 		_arm_invlpg((ii * 4096ul) + 0xF0000000ul);
-		paddr += 4096;
 	}
 	
 	return true;
