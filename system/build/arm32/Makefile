@@ -22,7 +22,7 @@ ASFLAGS += -march=armv5
 ASFLAGS += -g 
 
 #Compile flags
-CFLAGS += -march=armv5 -mabi=aapcs -ffreestanding -ffixed-r9
+CFLAGS += -march=armv5 -ffixed-r9
 CFLAGS += -std=c99 -Wall -Werror -Wextra -pedantic -Wshadow
 CFLAGS += -nostdlib -nostdinc
 CFLAGS += -I$(L)/mmlibc/include

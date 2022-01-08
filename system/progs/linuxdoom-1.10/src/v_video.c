@@ -43,7 +43,7 @@ byte*				screens[5];
  
 int				dirtybox[4]; 
 
-
+#define RANGECHECK
 
 // Now where did these came from?
 byte gammatable[5][256] =

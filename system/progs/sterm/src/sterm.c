@@ -16,8 +16,8 @@
 #include "confont.h"
 
 //Todo - determine this dynamically
-#define FB_WIDTH 800
-#define FB_HEIGHT 600
+#define FB_WIDTH 640
+#define FB_HEIGHT 480
 
 //Backbuffer as allocated
 uint32_t *fb_ptr;

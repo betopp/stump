@@ -20,3 +20,7 @@ $($(PROGVAR)_OBJ)/%.o : $($(PROGVAR)_SRC)/%.c
 	$(CC_OBJ) 
 
 
+
+$($(PROGVAR)_OBJ)/%.o : CFLAGS += -Wno-format-overflow
+$($(PROGVAR)_OBJ)/%.o : CFLAGS += -Wno-sizeof-pointer-memaccess
+$($(PROGVAR)_OBJ)/%.o : CFLAGS += -Wno-format

@@ -10,7 +10,7 @@ m_time_tsc:
 	ldr r2, =_faketsc
 	ldr r0, [r2]
 	ldr r1, [r2, #4]
-	adds r0, #1048576
+	adds r0, #32768
 	adc r1, #0
 	str r0, [r2]
 	str r1, [r2, #4]

@@ -20,7 +20,7 @@ CFLAGS += -I../shared/machine
 CFLAGS += -I../../system/libs/mmlibc/include
 CFLAGS += -I../../system/libs/libsc/include
 CFLAGS += -MMD
-CFLAGS += -g
+CFLAGS += -g -O1
 
 #Build information provided to compiler
 BUILDVERSION := $(shell git describe --abbrev=4 --dirty --always --tags)
